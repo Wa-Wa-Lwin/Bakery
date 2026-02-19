@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(wsl ls:*)",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Code\\\\enck_bakery'' -Force\")",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Code\\\\enck_bakery\\\\backend'' -Recurse -Force | Select-Object FullName\")",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Code\\\\enck_bakery\\\\frontend'' -Recurse -Force | Select-Object FullName\")",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Code\\\\enck_bakery\\\\backend\\\\app\\\\Models'' -Filter ''*.php'' | Select-Object Name\")",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Code\\\\enck_bakery\\\\backend\\\\database\\\\migrations'' -Filter ''*.php'' | Select-Object Name\")",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Code\\\\enck_bakery\\\\backend\\\\routes'' -Filter ''*.php'' | Select-Object Name\")",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Code\\\\enck_bakery\\\\backend\\\\app\\\\Models\\\\Staff.php'' -Force | Get-Content\")",
+      "Bash(powershell -Command:*)"
+    ]
+  }
+}
