@@ -1,9 +1,12 @@
+import { useState } from 'react';
+import { updateStaff } from '../api/staff';
 import type { Staff } from '../types/Staff';
 
 interface Props {
   staff: Staff[];
   loading: boolean;
   error: string;
+  onStaffUpdated: (updated: Staff) => void;
 }
 
 /* ── Avatar with initials ── */
@@ -21,27 +24,40 @@ function Avatar({ name }: { name: string }) {
   );
 }
 
-/* ── Status badge ── */
-function StatusBadge({ active }: { active: boolean }) {
+/* ── Status toggle switch ── */
+function StatusToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium
-      ${active
-        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-        : 'bg-stone-100 text-stone-500 border border-stone-200'
-      }`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-emerald-500' : 'bg-stone-400'}`} />
-      {active ? 'Active' : 'Inactive'}
-    </span>
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex items-center gap-2"
+    >
+      <div className={`relative w-9 h-5 rounded-full transition-colors ${active ? 'bg-emerald-500' : 'bg-stone-300'}`}>
+        <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${active ? 'translate-x-4' : 'translate-x-0'}`} />
+      </div>
+      <span className={`text-xs font-medium ${active ? 'text-emerald-600' : 'text-stone-400'}`}>
+        {active ? 'Active' : 'Inactive'}
+      </span>
+    </button>
   );
 }
 
-/* ── Permission chip ── */
-function Chip({ label }: { label: string }) {
+/* ── Permission dropdown (Yes/No with color) ── */
+function PermSelect({ value, onChange }: { value: boolean; onChange: (val: boolean) => void }) {
   return (
-    <span className="inline-block rounded-md bg-amber-100 text-amber-700 border border-amber-200
-      px-2 py-0.5 text-xs font-medium">
-      {label}
-    </span>
+    <select
+      value={value ? 'yes' : 'no'}
+      onChange={(e) => onChange(e.target.value === 'yes')}
+      className={`rounded-md border text-xs font-medium px-2 py-1 cursor-pointer transition-colors
+        focus:outline-none focus:ring-1 focus:ring-amber-400
+        ${value
+          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+          : 'bg-red-50 text-red-600 border-red-300'
+        }`}
+    >
+      <option value="yes">Yes</option>
+      <option value="no">No</option>
+    </select>
   );
 }
 
@@ -49,16 +65,117 @@ function Chip({ label }: { label: string }) {
 function SkeletonRow() {
   return (
     <tr className="border-b border-stone-100">
-      {[40, 24, 48, 28, 24, 20, 36].map((w, i) => (
+      {[40, 24, 48, 28, 24, 20, 20, 20, 20].map((w, i) => (
         <td key={i} className="px-4 py-3.5">
-          <div className={`h-3 bg-stone-200 rounded animate-pulse`} style={{ width: `${w * 2}px` }} />
+          <div className="h-3 bg-stone-200 rounded animate-pulse" style={{ width: `${w * 2}px` }} />
         </td>
       ))}
     </tr>
   );
 }
 
-export default function StaffList({ staff, loading, error }: Props) {
+/** Strip timestamp portion — "2026-02-19T00:00:00.000000Z" → "2026-02-19" */
+function formatDate(dateStr: string): string {
+  return dateStr.slice(0, 10);
+}
+
+/* ── Single staff row ── */
+function StaffRow({ s, idx, isUpdating, onFieldChange, inactive }: {
+  s: Staff;
+  idx: number;
+  isUpdating: boolean;
+  onFieldChange: (s: Staff, field: keyof Staff, value: boolean) => void;
+  inactive?: boolean;
+}) {
+  return (
+    <tr
+      className={`border-b border-stone-100 transition-colors
+        ${inactive ? 'bg-stone-50/70' : idx % 2 === 0 ? 'bg-white' : 'bg-stone-50/50'}
+        ${inactive ? 'hover:bg-stone-100' : 'hover:bg-amber-50'}
+        ${isUpdating ? 'opacity-60 pointer-events-none' : ''}`}
+    >
+      {/* Name + avatar */}
+      <td className="px-4 py-3.5">
+        <div className="flex items-center gap-3">
+          <Avatar name={s.full_name} />
+          <span className={`font-medium ${inactive ? 'text-stone-400' : 'text-stone-800'}`}>{s.full_name}</span>
+        </div>
+      </td>
+
+      {/* Access code */}
+      <td className="px-4 py-3.5">
+        <code className="rounded-lg bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs font-mono text-stone-600">
+          {s.access_code}
+        </code>
+      </td>
+
+      {/* Email */}
+      <td className={`px-4 py-3.5 ${inactive ? 'text-stone-400' : 'text-stone-600'}`}>{s.email}</td>
+
+      {/* Role */}
+      <td className="px-4 py-3.5">
+        <span className={`font-medium ${inactive ? 'text-stone-400' : 'text-stone-700'}`}>{s.role_name}</span>
+      </td>
+
+      {/* Joined date */}
+      <td className={`px-4 py-3.5 whitespace-nowrap ${inactive ? 'text-stone-400' : 'text-stone-500'}`}>
+        {formatDate(s.joined_date)}
+      </td>
+
+      {/* Status toggle */}
+      <td className="px-4 py-3.5">
+        <StatusToggle active={s.is_active} onToggle={() => onFieldChange(s, 'is_active', !s.is_active)} />
+      </td>
+
+      {/* Can Refund */}
+      <td className="px-4 py-3.5 text-center">
+        <PermSelect value={s.can_refund} onChange={(val) => onFieldChange(s, 'can_refund', val)} />
+      </td>
+
+      {/* Can Waste */}
+      <td className="px-4 py-3.5 text-center">
+        <PermSelect value={s.can_waste} onChange={(val) => onFieldChange(s, 'can_waste', val)} />
+      </td>
+
+      {/* Toggle Channel */}
+      <td className="px-4 py-3.5 text-center">
+        <PermSelect value={s.can_toggle_channel} onChange={(val) => onFieldChange(s, 'can_toggle_channel', val)} />
+      </td>
+    </tr>
+  );
+}
+
+export default function StaffList({ staff, loading, error, onStaffUpdated }: Props) {
+
+  const [updating, setUpdating] = useState<number | null>(null);
+
+  async function handleFieldChange(s: Staff, field: keyof Staff, value: boolean) {
+    setUpdating(s.staff_id);
+    try {
+      let payload: Record<string, boolean> = { [field]: value };
+
+      // When deactivating, also turn off all permissions
+      if (field === 'is_active' && !value) {
+        payload = {
+          is_active: false,
+          can_refund: false,
+          can_waste: false,
+          can_toggle_channel: false,
+        };
+      }
+
+      const updated = await updateStaff(s.staff_id, payload);
+      onStaffUpdated(updated);
+    } catch {
+      /* silently keep current state on error */
+    } finally {
+      setUpdating(null);
+    }
+  }
+
+  const activeStaff = staff.filter((s) => s.is_active);
+  const inactiveStaff = staff.filter((s) => !s.is_active);
+
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
 
@@ -92,7 +209,9 @@ export default function StaffList({ staff, loading, error }: Props) {
               <th className="text-left px-4 py-3">Role</th>
               <th className="text-left px-4 py-3">Joined</th>
               <th className="text-left px-4 py-3">Status</th>
-              <th className="text-left px-4 py-3">Permissions</th>
+              <th className="text-center px-4 py-3">Can Refund</th>
+              <th className="text-center px-4 py-3">Can Waste</th>
+              <th className="text-center px-4 py-3">Toggle Channel</th>
             </tr>
           </thead>
           <tbody>
@@ -108,7 +227,7 @@ export default function StaffList({ staff, loading, error }: Props) {
             {/* Empty state */}
             {!loading && !error && staff.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-14 text-center">
+                <td colSpan={9} className="px-4 py-14 text-center">
                   <div className="flex flex-col items-center gap-2 text-stone-400">
                     <span className="text-4xl">🧑‍🍳</span>
                     <p className="text-sm font-medium text-stone-500">No staff registered yet</p>
@@ -118,56 +237,32 @@ export default function StaffList({ staff, loading, error }: Props) {
               </tr>
             )}
 
-            {/* Data rows */}
-            {!loading && staff.map((s, idx) => (
-              <tr
-                key={s.staff_id}
-                className={`border-b border-stone-100 hover:bg-amber-50 transition-colors
-                  ${idx % 2 === 0 ? 'bg-white' : 'bg-stone-50/50'}`}
-              >
-                {/* Name + avatar */}
-                <td className="px-4 py-3.5">
-                  <div className="flex items-center gap-3">
-                    <Avatar name={s.full_name} />
-                    <span className="font-medium text-stone-800">{s.full_name}</span>
-                  </div>
-                </td>
+            {/* Active staff rows */}
+            {!loading && activeStaff.map((s, idx) => (
+              <StaffRow key={s.staff_id} s={s} idx={idx} isUpdating={updating === s.staff_id} onFieldChange={handleFieldChange} />
+            ))}
 
-                {/* Access code */}
-                <td className="px-4 py-3.5">
-                  <code className="rounded-lg bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs font-mono text-stone-600">
-                    {s.access_code}
-                  </code>
-                </td>
-
-                {/* Email */}
-                <td className="px-4 py-3.5 text-stone-600">{s.email}</td>
-
-                {/* Role */}
-                <td className="px-4 py-3.5">
-                  <span className="text-stone-700 font-medium">{s.role_name}</span>
-                </td>
-
-                {/* Joined date */}
-                <td className="px-4 py-3.5 text-stone-500 whitespace-nowrap">{s.joined_date}</td>
-
-                {/* Status */}
-                <td className="px-4 py-3.5">
-                  <StatusBadge active={s.is_active} />
-                </td>
-
-                {/* Permissions */}
-                <td className="px-4 py-3.5">
-                  <div className="flex flex-wrap gap-1">
-                    {s.can_toggle_channel && <Chip label="Toggle Channel" />}
-                    {s.can_waste && <Chip label="Waste" />}
-                    {s.can_refund && <Chip label="Refund" />}
-                    {!s.can_toggle_channel && !s.can_waste && !s.can_refund && (
-                      <span className="text-stone-400 text-xs italic">None</span>
-                    )}
-                  </div>
+            {/* Divider between active and inactive */}
+            {!loading && activeStaff.length > 0 && inactiveStaff.length > 0 && (
+              <tr>
+                <td colSpan={9} className="px-4 py-2 bg-stone-100 border-y border-stone-200">
+                  <span className="text-xs font-semibold text-stone-400 uppercase tracking-wider">Inactive Staff</span>
                 </td>
               </tr>
+            )}
+
+            {/* Inactive-only label when no active staff */}
+            {!loading && activeStaff.length === 0 && inactiveStaff.length > 0 && (
+              <tr>
+                <td colSpan={9} className="px-4 py-2 bg-stone-100 border-y border-stone-200">
+                  <span className="text-xs font-semibold text-stone-400 uppercase tracking-wider">Inactive Staff</span>
+                </td>
+              </tr>
+            )}
+
+            {/* Inactive staff rows */}
+            {!loading && inactiveStaff.map((s, idx) => (
+              <StaffRow key={s.staff_id} s={s} idx={idx} isUpdating={updating === s.staff_id} onFieldChange={handleFieldChange} inactive />
             ))}
           </tbody>
         </table>
@@ -175,8 +270,9 @@ export default function StaffList({ staff, loading, error }: Props) {
 
       {/* ── Footer ── */}
       {!loading && staff.length > 0 && (
-        <div className="px-6 py-3 bg-stone-50 border-t border-stone-200 text-xs text-stone-400 text-right">
-          Showing {staff.length} {staff.length === 1 ? 'staff member' : 'staff members'}
+        <div className="px-6 py-3 bg-stone-50 border-t border-stone-200 text-xs text-stone-400 flex justify-between">
+          <span>{activeStaff.length} active · {inactiveStaff.length} inactive</span>
+          <span>{staff.length} total</span>
         </div>
       )}
     </div>

@@ -1,20 +1,46 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect } from 'react';
 import { createStaff } from '../api/staff';
 import type { ApiError } from '../api/staff';
 import type { Staff, StaffFormData, ValidationErrors } from '../types/Staff';
 
-const EMPTY_FORM: StaffFormData = {
-  full_name: '',
-  access_code: '',
-  dob: '',
-  email: '',
-  joined_date: '',
-  is_active: true,
-  role_name: '',
-  can_toggle_channel: false,
-  can_waste: false,
-  can_refund: false,
-};
+const STORAGE_KEY = 'staff_register_form';
+
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function generateAccessCode(): string {
+  const digits = '0123456789';
+  let code = '';
+  for (let i = 0; i < 5; i++) code += digits[Math.floor(Math.random() * digits.length)];
+  return code;
+}
+
+function freshForm(): StaffFormData {
+  return {
+    full_name: '',
+    access_code: generateAccessCode(),
+    dob: '',
+    email: '',
+    joined_date: todayStr(),
+    is_active: true,
+    role_name: '',
+    can_toggle_channel: false,
+    can_waste: false,
+    can_refund: false,
+  };
+}
+
+function loadForm(): StaffFormData {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved) as StaffFormData;
+  } catch { /* ignore */ }
+  return freshForm();
+}
+
+/** Max date for DOB: must be at least 15 years old */
+const DOB_MAX = `${new Date().getFullYear() - 15}-12-31`;
 
 interface FieldProps {
   label: string;
@@ -22,12 +48,15 @@ interface FieldProps {
   type?: string;
   placeholder?: string;
   maxLength?: number;
+  max?: string;
+  min?: string;
+  readOnly?: boolean;
   form: StaffFormData;
   errors: ValidationErrors;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-function Field({ label, name, type = 'text', placeholder, maxLength, form, errors, onChange }: FieldProps) {
+function Field({ label, name, type = 'text', placeholder, maxLength, max, min, readOnly, form, errors, onChange }: FieldProps) {
   const fieldErrors = errors[name] ?? [];
   const hasError = fieldErrors.length > 0;
   return (
@@ -42,8 +71,12 @@ function Field({ label, name, type = 'text', placeholder, maxLength, form, error
         onChange={onChange}
         placeholder={placeholder}
         maxLength={maxLength}
-        className={`rounded-lg border px-3 py-2.5 text-sm text-stone-800 bg-stone-50 placeholder-stone-400
+        max={max}
+        min={min}
+        readOnly={readOnly}
+        className={`rounded-lg border px-3 py-2.5 text-sm text-stone-800 placeholder-stone-400
           transition focus:outline-none focus:ring-2 focus:bg-white
+          ${readOnly ? 'bg-stone-200 cursor-not-allowed text-stone-500' : 'bg-stone-50'}
           ${hasError
             ? 'border-red-400 bg-red-50 focus:ring-red-300'
             : 'border-stone-300 focus:ring-amber-400 focus:border-amber-400'
@@ -58,42 +91,75 @@ function Field({ label, name, type = 'text', placeholder, maxLength, form, error
   );
 }
 
+const ROLE_OPTIONS = ['Staff', 'Manager', 'Owner'];
+
+interface SelectFieldProps {
+  label: string;
+  name: keyof StaffFormData;
+  options: string[];
+  form: StaffFormData;
+  errors: ValidationErrors;
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+}
+
+function SelectField({ label, name, options, form, errors, onChange }: SelectFieldProps) {
+  const fieldErrors = errors[name] ?? [];
+  const hasError = fieldErrors.length > 0;
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-semibold text-stone-600 uppercase tracking-wide">
+        {label}
+      </label>
+      <select
+        name={name}
+        value={form[name] as string}
+        onChange={onChange}
+        className={`rounded-lg border px-3 py-2.5 text-sm text-stone-800 bg-stone-50
+          transition focus:outline-none focus:ring-2 focus:bg-white
+          ${hasError
+            ? 'border-red-400 bg-red-50 focus:ring-red-300'
+            : 'border-stone-300 focus:ring-amber-400 focus:border-amber-400'
+          }`}
+      >
+        <option value="">Select a role</option>
+        {options.map((opt) => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+      </select>
+      {fieldErrors.map((msg, i) => (
+        <p key={i} className="text-xs text-red-500 flex items-center gap-1">
+          <span>⚠</span> {msg}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 interface PermToggleProps {
   label: string;
   name: keyof StaffFormData;
   desc: string;
   form: StaffFormData;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onToggle: (name: keyof StaffFormData) => void;
 }
 
-function PermToggle({ label, name, desc, form, onChange }: PermToggleProps) {
+function PermToggle({ label, name, desc, form, onToggle }: PermToggleProps) {
   const active = form[name] as boolean;
   return (
-    <label className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors
-      hover:bg-amber-50 hover:border-amber-300
-      has-[:checked]:bg-amber-50 has-[:checked]:border-amber-400">
-      <div className="mt-0.5 relative">
-        <input
-          type="checkbox"
-          name={name}
-          checked={active}
-          onChange={onChange}
-          className="sr-only"
-        />
-        <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors
-          ${active ? 'bg-amber-600 border-amber-600' : 'bg-white border-stone-300'}`}>
-          {active && (
-            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          )}
-        </div>
-      </div>
+    <div
+      className={`flex items-center justify-between p-3 rounded-xl border transition-colors cursor-pointer hover:bg-amber-50 hover:border-amber-300
+        ${active ? 'bg-amber-50 border-amber-400' : ''}
+      `}
+      onClick={() => onToggle(name)}
+    >
       <div>
         <p className="text-sm font-medium text-stone-700">{label}</p>
         <p className="text-xs text-stone-400">{desc}</p>
       </div>
-    </label>
+      <div className={`relative w-11 h-6 rounded-full transition-colors ${active ? 'bg-amber-600' : 'bg-stone-300'}`}>
+        <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${active ? 'translate-x-5' : 'translate-x-0'}`} />
+      </div>
+    </div>
   );
 }
 
@@ -102,25 +168,52 @@ interface Props {
 }
 
 export default function StaffRegisterForm({ onRegistered }: Props) {
-  const [form, setForm] = useState<StaffFormData>(EMPTY_FORM);
+  const [form, setForm] = useState<StaffFormData>(loadForm);
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const { name, value, type, checked } = e.target;
-    setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  // Persist form to localStorage on every change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
+  }, [form]);
+
+  // When role becomes "staff" (case-insensitive), auto-turn off manager/owner permissions
+  useEffect(() => {
+    if (form.role_name.trim().toLowerCase() === 'staff') {
+      setForm((prev) => ({
+        ...prev,
+        can_refund: false,
+        can_waste: false,
+        can_toggle_channel: false,
+      }));
+    }
+  }, [form.role_name]);
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
+    const { name, value } = e.target;
+    const isCheckbox = 'checked' in e.target && e.target.type === 'checkbox';
+    setForm((prev) => ({ ...prev, [name]: isCheckbox ? (e.target as HTMLInputElement).checked : value }));
     setErrors((prev) => ({ ...prev, [name]: [] }));
   }
 
-  async function handleSubmit(e: FormEvent) {
+  function handleToggle(name: keyof StaffFormData) {
+    setForm((prev) => ({ ...prev, [name]: !prev[name] }));
+    setErrors((prev) => ({ ...prev, [name]: [] }));
+  }
+
+  const isStaffRole = form.role_name.trim().toLowerCase() === 'staff';
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErrors({});
     setSuccessMsg('');
     setSubmitting(true);
     try {
       const created = await createStaff(form);
-      setForm(EMPTY_FORM);
+      const fresh = freshForm();
+      setForm(fresh);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
       setSuccessMsg(`${created.full_name} has been registered successfully.`);
       onRegistered(created);
     } catch (err) {
@@ -165,12 +258,12 @@ export default function StaffRegisterForm({ onRegistered }: Props) {
               <div className="h-px flex-1 bg-stone-200" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Full Name" name="full_name" placeholder="e.g. Jane Doe" form={form} errors={errors} onChange={handleChange} />
-              <Field label="Access Code" name="access_code" placeholder="Max 10 characters" maxLength={10} form={form} errors={errors} onChange={handleChange} />
+              <Field label="Full Name" name="full_name" placeholder="e.g. aung aung" form={form} errors={errors} onChange={handleChange} />
+              <Field label="Access Code" name="access_code" readOnly form={form} errors={errors} onChange={handleChange} />
               <Field label="Email Address" name="email" type="email" placeholder="staff@bakery.com" form={form} errors={errors} onChange={handleChange} />
-              <Field label="Role" name="role_name" placeholder="e.g. Cashier" form={form} errors={errors} onChange={handleChange} />
-              <Field label="Date of Birth" name="dob" type="date" form={form} errors={errors} onChange={handleChange} />
-              <Field label="Joined Date" name="joined_date" type="date" form={form} errors={errors} onChange={handleChange} />
+              <SelectField label="Role" name="role_name" options={ROLE_OPTIONS} form={form} errors={errors} onChange={handleChange} />
+              <Field label="Date of Birth" name="dob" type="date" max={DOB_MAX} form={form} errors={errors} onChange={handleChange} />
+              <Field label="Joined Date" name="joined_date" type="date" max={todayStr()} form={form} errors={errors} onChange={handleChange} />
             </div>
           </div>
 
@@ -182,18 +275,21 @@ export default function StaffRegisterForm({ onRegistered }: Props) {
               <div className="h-px flex-1 bg-stone-200" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <PermToggle name="is_active" label="Active" desc="Staff can log in and use the system" form={form} onChange={handleChange} />
-              <PermToggle name="can_toggle_channel" label="Toggle Channel" desc="Can enable or disable order channels" form={form} onChange={handleChange} />
-              <PermToggle name="can_waste" label="Waste" desc="Can record wastage entries" form={form} onChange={handleChange} />
-              <PermToggle name="can_refund" label="Refund" desc="Can process customer refunds" form={form} onChange={handleChange} />
+              <PermToggle name="is_active" label="Active" desc="Staff can log in and use the system" form={form} onToggle={handleToggle} />
+              <PermToggle name="can_toggle_channel" label="Toggle Channel" desc="Can enable or disable order channels" form={form} onToggle={handleToggle} />
+              <PermToggle name="can_waste" label="Waste" desc="Can record wastage entries" form={form} onToggle={handleToggle} />
+              <PermToggle name="can_refund" label="Refund" desc="Can process customer refunds" form={form} onToggle={handleToggle} />
             </div>
+            {isStaffRole && (
+              <p className="text-xs text-amber-600 mt-2">Staff role permissions are automatically turned off. You can still toggle them on if needed.</p>
+            )}
           </div>
 
           {/* ── Actions ── */}
           <div className="flex items-center justify-between pt-1">
             <button
               type="button"
-              onClick={() => { setForm(EMPTY_FORM); setErrors({}); setSuccessMsg(''); }}
+              onClick={() => { const f = freshForm(); setForm(f); localStorage.setItem(STORAGE_KEY, JSON.stringify(f)); setErrors({}); setSuccessMsg(''); }}
               className="text-sm text-stone-400 hover:text-stone-600 transition-colors"
             >
               Clear form

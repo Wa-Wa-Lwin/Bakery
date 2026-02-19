@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class OrderedItem extends Model
 {
@@ -29,9 +28,4 @@ class OrderedItem extends Model
         return $this->belongsTo(MenuItem::class, 'item_id', 'item_id');
     }
 
-    public function addOns(): BelongsToMany
-    {
-        return $this->belongsToMany(AddOn::class, 'ordered_item_details', 'ordered_items_id', 'add_on_id')
-            ->withTimestamps();
-    }
 }

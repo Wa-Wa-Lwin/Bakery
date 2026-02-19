@@ -30,6 +30,10 @@ export default function StaffPage() {
     setStaff((prev) => [newStaff, ...prev]);
   }
 
+  function handleStaffUpdated(updated: Staff) {
+    setStaff((prev) => prev.map((s) => s.staff_id === updated.staff_id ? updated : s));
+  }
+
   return (
     <div className="min-h-screen bg-stone-100">
 
@@ -64,7 +68,7 @@ export default function StaffPage() {
 
       <main className="max-w-6xl mx-auto px-6 py-5 space-y-6">
         <StaffRegisterForm onRegistered={handleRegistered} />
-        <StaffList staff={staff} loading={loading} error={error} />
+        <StaffList staff={staff} loading={loading} error={error} onStaffUpdated={handleStaffUpdated} />
       </main>
     </div>
   );

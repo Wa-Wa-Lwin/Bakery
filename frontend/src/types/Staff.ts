@@ -30,3 +30,9 @@ export interface StaffFormData {
 export interface ValidationErrors {
   [key: string]: string[];
 }
+
+export interface AuthUser {
+  staff_id: number;
+  full_name: string;
+  role_name: string;
+}

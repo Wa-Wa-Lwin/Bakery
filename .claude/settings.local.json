@@ -10,7 +10,11 @@
       "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Code\\\\enck_bakery\\\\backend\\\\database\\\\migrations'' -Filter ''*.php'' | Select-Object Name\")",
       "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Code\\\\enck_bakery\\\\backend\\\\routes'' -Filter ''*.php'' | Select-Object Name\")",
       "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Code\\\\enck_bakery\\\\backend\\\\app\\\\Models\\\\Staff.php'' -Force | Get-Content\")",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "Bash(npm install:*)",
+      "Bash(php artisan:*)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)"
     ]
   }
 }
