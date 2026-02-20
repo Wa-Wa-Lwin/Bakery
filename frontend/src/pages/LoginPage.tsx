@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { login } from '../api/auth';
 import type { LoginError } from '../api/auth';
 import type { AuthUser } from '../types/Staff';
+import NumPad from '../components/NumPad';
 
 interface Props {
   onLogin: (user: AuthUser) => void;
@@ -88,14 +89,14 @@ export default function LoginPage({ onLogin }: Props) {
                     Access Code
                   </label>
                   <input
-                    type="text"
+                    type="password"
                     inputMode="numeric"
                     value={code}
                     onChange={handleCodeChange}
                     placeholder="00000"
                     maxLength={5}
                     autoFocus
-                    className="rounded-lg border border-stone-300 px-3 py-3 text-center text-2xl font-mono
+                    className="w-full rounded-lg border border-stone-300 px-3 py-3 text-center text-2xl font-mono
                       tracking-[0.5em] text-stone-800 bg-stone-50 placeholder-stone-300
                       transition focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 focus:bg-white"
                   />
@@ -103,6 +104,9 @@ export default function LoginPage({ onLogin }: Props) {
                     {code.length}/5 digits
                   </p>
                 </div>
+
+                {/* ── Numpad ── */}
+                <NumPad value={code} onChange={setCode} maxLength={5} />
 
                 <button
                   type="submit"

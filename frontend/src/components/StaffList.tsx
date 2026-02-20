@@ -2,6 +2,25 @@ import { useState } from 'react';
 import { updateStaff } from '../api/staff';
 import type { Staff } from '../types/Staff';
 
+/* ── Eye icons ── */
+function EyeIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+function EyeOffIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
+}
+
 interface Props {
   staff: Staff[];
   loading: boolean;
@@ -87,6 +106,7 @@ function StaffRow({ s, idx, isUpdating, onFieldChange, inactive }: {
   onFieldChange: (s: Staff, field: keyof Staff, value: boolean) => void;
   inactive?: boolean;
 }) {
+  const [showCode, setShowCode] = useState(false);
   return (
     <tr
       className={`border-b border-stone-100 transition-colors
@@ -104,9 +124,19 @@ function StaffRow({ s, idx, isUpdating, onFieldChange, inactive }: {
 
       {/* Access code */}
       <td className="px-4 py-3.5">
-        <code className="rounded-lg bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs font-mono text-stone-600">
-          {s.access_code}
-        </code>
+        <div className="flex items-center gap-1.5">
+          <code className="rounded-lg bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs font-mono text-stone-600 min-w-[52px] text-center tracking-widest">
+            {showCode ? s.access_code : '•••••'}
+          </code>
+          <button
+            type="button"
+            onClick={() => setShowCode((v) => !v)}
+            className="text-stone-400 hover:text-stone-600 transition-colors p-0.5"
+            title={showCode ? 'Hide code' : 'Show code'}
+          >
+            {showCode ? <EyeOffIcon /> : <EyeIcon />}
+          </button>
+        </div>
       </td>
 
       {/* Email */}
@@ -127,19 +157,19 @@ function StaffRow({ s, idx, isUpdating, onFieldChange, inactive }: {
         <StatusToggle active={s.is_active} onToggle={() => onFieldChange(s, 'is_active', !s.is_active)} />
       </td>
 
-      {/* Can Refund */}
+      {/* Can Refund — show No when inactive; DB value preserved for restore on reactivation */}
       <td className="px-4 py-3.5 text-center">
-        <PermSelect value={s.can_refund} onChange={(val) => onFieldChange(s, 'can_refund', val)} />
+        <PermSelect value={s.is_active && s.can_refund} onChange={(val) => onFieldChange(s, 'can_refund', val)} />
       </td>
 
       {/* Can Waste */}
       <td className="px-4 py-3.5 text-center">
-        <PermSelect value={s.can_waste} onChange={(val) => onFieldChange(s, 'can_waste', val)} />
+        <PermSelect value={s.is_active && s.can_waste} onChange={(val) => onFieldChange(s, 'can_waste', val)} />
       </td>
 
       {/* Toggle Channel */}
       <td className="px-4 py-3.5 text-center">
-        <PermSelect value={s.can_toggle_channel} onChange={(val) => onFieldChange(s, 'can_toggle_channel', val)} />
+        <PermSelect value={s.is_active && s.can_toggle_channel} onChange={(val) => onFieldChange(s, 'can_toggle_channel', val)} />
       </td>
     </tr>
   );
@@ -152,19 +182,10 @@ export default function StaffList({ staff, loading, error, onStaffUpdated }: Pro
   async function handleFieldChange(s: Staff, field: keyof Staff, value: boolean) {
     setUpdating(s.staff_id);
     try {
-      let payload: Record<string, boolean> = { [field]: value };
-
-      // When deactivating, also turn off all permissions
-      if (field === 'is_active' && !value) {
-        payload = {
-          is_active: false,
-          can_refund: false,
-          can_waste: false,
-          can_toggle_channel: false,
-        };
-      }
-
-      const updated = await updateStaff(s.staff_id, payload);
+      // Only save what changed — permissions are never overwritten on deactivation.
+      // The UI shows them as No when inactive, but DB values are preserved so they
+      // restore automatically when the staff member is reactivated.
+      const updated = await updateStaff(s.staff_id, { [field]: value });
       onStaffUpdated(updated);
     } catch {
       /* silently keep current state on error */

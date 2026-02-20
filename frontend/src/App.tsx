@@ -5,6 +5,7 @@ import type { AuthUser } from './types/Staff';
 import LoginPage from './pages/LoginPage';
 import AdminPage from './pages/AdminPage';
 import CateringPage from './pages/CateringPage';
+import PaymentPage from './pages/PaymentPage';
 
 function homeFor(user: AuthUser): string {
   return user.role_name === 'Staff' ? '/catering' : '/admin';
@@ -50,6 +51,15 @@ function App() {
             !user ? <Navigate to="/login" replace /> :
             user.role_name !== 'Staff' ? <Navigate to={homeFor(user)} replace /> :
             <CateringPage user={user} onLogout={handleLogout} />
+          }
+        />
+
+        {/* Payment — any logged-in role */}
+        <Route
+          path="/payment"
+          element={
+            !user ? <Navigate to="/login" replace /> :
+            <PaymentPage user={user} onLogout={handleLogout} />
           }
         />
 

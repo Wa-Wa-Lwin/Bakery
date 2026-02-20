@@ -14,7 +14,8 @@
       "Bash(npm install:*)",
       "Bash(php artisan:*)",
       "Bash(npm run dev:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
