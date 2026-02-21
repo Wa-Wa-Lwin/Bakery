@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import type { AuthUser } from '../types/Staff';
-import NumPad from '../components/NumPad';
 import { appendAudit } from '../data/audit';
 
 /* ── Order data shape passed via router state ────────────────── */
@@ -93,25 +92,56 @@ function CardPanel({ total, onPaid }: { total: number; onPaid: () => void }) {
 function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => void; onClose: () => void }) {
   const [input, setInput] = useState('');
 
-  function handleChange(v: string) {
-    const clean = v.replace(/^0+(\d)/, '$1');
-    setInput(clean);
+  const received   = parseFloat(input) || 0;
+  const totalPence = Math.round(total * 100);
+  const recvPence  = Math.round(received * 100);
+  const change     = received - total;
+  const canTender  = recvPence >= totalPence;
+
+  // Digit string entry — max 2 decimal places, no leading zeros
+  function pressDigit(d: string) {
+    setInput((prev) => {
+      if (prev.includes('.')) {
+        const after = prev.split('.')[1];
+        if (after.length >= 2) return prev;
+        return prev + d;
+      }
+      if (prev === '0') return d === '0' ? '0' : d;
+      if (prev.length >= 5) return prev; // cap at £99999
+      return prev + d;
+    });
   }
 
-  function applyPreset(offset: number) {
-    const target = offset === 0 ? total : total + offset;
-    setInput(target.toFixed(2));
+  function pressDecimal() {
+    setInput((prev) => {
+      if (prev.includes('.')) return prev;
+      return (prev || '0') + '.';
+    });
   }
 
-  const received  = parseFloat(input) || 0;
-  const change    = received - total;
-  const canTender = received >= total;
+  // Presets add to current value using integer pence math (no float drift)
+  function addAmount(pence: number) {
+    setInput((prev) => {
+      const cur  = Math.round((parseFloat(prev) || 0) * 100);
+      const next = cur + pence;
+      const p    = Math.floor(next / 100);
+      const c    = next % 100;
+      return c === 0 ? String(p) : `${p}.${String(c).padStart(2, '0')}`;
+    });
+  }
 
-  const presets: { label: string; offset: number }[] = [
-    { label: 'Exact', offset: 0  },
-    { label: '+£1',   offset: 1  },
-    { label: '+£5',   offset: 5  },
-    { label: '+£10',  offset: 10 },
+  const POUND_PRESETS = [
+    { label: 'Exact', action: () => setInput(total.toFixed(2)) },
+    { label: '+£5',   action: () => addAmount(500)  },
+    { label: '+£10',  action: () => addAmount(1000) },
+    { label: '+£20',  action: () => addAmount(2000) },
+  ];
+
+  const NUMPAD_ROWS = [
+    ['7', '8', '9'],
+    ['4', '5', '6'],
+    ['1', '2', '3'],
+    ['C', '0', '.'],
   ];
 
   return (
@@ -130,22 +160,24 @@ function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => vo
           >×</button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-4 space-y-3">
           {/* Amount display */}
           <div className="bg-stone-50 rounded-xl border border-stone-200 px-4 py-3 text-center">
             <p className="text-xs text-stone-400 mb-0.5">Cash received</p>
-            <p className="text-3xl font-bold text-stone-800">
-              {input === '' ? <span className="text-stone-300">£0.00</span> : `£${input}`}
+            <p className="text-3xl font-bold text-stone-800 tabular-nums tracking-tight">
+              {input
+                ? `£${input}`
+                : <span className="text-stone-300">£0.00</span>}
             </p>
           </div>
 
-          {/* Quick presets */}
+          {/* Quick access: Exact / +£5 / +£10 / +£20 */}
           <div className="grid grid-cols-4 gap-2">
-            {presets.map((p) => (
+            {POUND_PRESETS.map((p) => (
               <button
                 key={p.label}
                 type="button"
-                onClick={() => applyPreset(p.offset)}
+                onClick={p.action}
                 className="rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200
                   text-amber-800 text-xs font-semibold py-2 transition-colors active:scale-95"
               >
@@ -154,17 +186,48 @@ function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => vo
             ))}
           </div>
 
-          {/* NumPad */}
-          <NumPad value={input} onChange={handleChange} decimal maxLength={6} />
+          {/* Numpad: 7–9 / 4–6 / 1–3 / C, 0, . */}
+          <div className="grid grid-cols-3 gap-2">
+            {NUMPAD_ROWS.flat().map((key, i) => {
+              if (key === 'C') return (
+                <button
+                  key={i} type="button" onClick={() => setInput('')}
+                  className="h-12 rounded-xl text-sm font-semibold bg-red-50 hover:bg-red-100
+                    text-red-600 transition-all active:scale-95"
+                >
+                  Clear
+                </button>
+              );
+              if (key === '.') return (
+                <button
+                  key={i} type="button" onClick={pressDecimal}
+                  disabled={input.includes('.')}
+                  className="h-12 rounded-xl text-xl font-bold bg-stone-200 hover:bg-stone-300
+                    text-stone-700 transition-all active:scale-95 disabled:opacity-40"
+                >
+                  .
+                </button>
+              );
+              return (
+                <button
+                  key={i} type="button" onClick={() => pressDigit(key)}
+                  className="h-12 rounded-xl text-xl font-semibold bg-stone-100 hover:bg-amber-100
+                    text-stone-800 transition-all active:scale-95"
+                >
+                  {key}
+                </button>
+              );
+            })}
+          </div>
 
-          {/* Change */}
+          {/* Change / shortfall */}
           <div className={`rounded-xl px-4 py-3 flex justify-between items-center
             ${canTender ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}
           >
             <span className={`text-sm font-medium ${canTender ? 'text-emerald-700' : 'text-red-600'}`}>
               {canTender ? 'Change due' : 'Amount short'}
             </span>
-            <span className={`text-lg font-bold ${canTender ? 'text-emerald-700' : 'text-red-600'}`}>
+            <span className={`text-lg font-bold tabular-nums ${canTender ? 'text-emerald-700' : 'text-red-600'}`}>
               {canTender ? fmt(change) : fmt(total - received)}
             </span>
           </div>
@@ -282,7 +345,7 @@ export default function PaymentPage({ user, onLogout }: Props) {
     return null;
   }
 
-  function handlePaid() {
+  const handlePaid = () => {
     const paidAt    = new Date().toISOString();
     const completed = { ...order, paymentMethod: method, paidAt };
     const existing: unknown[] = JSON.parse(localStorage.getItem('bakery_orders') ?? '[]');
@@ -291,13 +354,19 @@ export default function PaymentPage({ user, onLogout }: Props) {
       `Order ${order.orderId} · ${order.customerName} · ${fmt(order.total)} · ${method}`);
     setShowCashOverlay(false);
     setStage('done');
-  }
+  };
 
-  function handleNewOrder() {
+  const handleNewOrder = () => {
     navigate('/catering', { replace: true });
-  }
+  };
 
-  function handleHoldOrder() {
+  const handleCancelOrder = () => {
+    appendAudit(user, 'VOID_ATTEMPT',
+      `Order ${order.orderId} · ${order.customerName} · ${fmt(order.total)} · cancelled without payment`);
+    navigate('/catering', { replace: true });
+  };
+
+  const handleHoldOrder = () => {
     const held = {
       id: `HOLD-${Date.now()}`,
       customerName: order.customerName,
@@ -312,12 +381,12 @@ export default function PaymentPage({ user, onLogout }: Props) {
     const existing: unknown[] = JSON.parse(localStorage.getItem('bakery_held_orders') ?? '[]');
     localStorage.setItem('bakery_held_orders', JSON.stringify([held, ...existing]));
     navigate('/catering', { replace: true });
-  }
+  };
 
-  function selectMethod(m: Method) {
+  const selectMethod = (m: Method) => {
     setMethod(m);
     if (m === 'cash') setShowCashOverlay(true);
-  }
+  };
 
   const methodLabels: Record<Method, string> = {
     card: '💳 Card',
@@ -363,7 +432,7 @@ export default function PaymentPage({ user, onLogout }: Props) {
                 ⏸ Hold Order — resume later
               </button>
               <button
-                onClick={handleNewOrder}
+                onClick={handleCancelOrder}
                 className="w-full rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold py-3 text-sm transition-colors"
               >
                 Cancel Order — discard

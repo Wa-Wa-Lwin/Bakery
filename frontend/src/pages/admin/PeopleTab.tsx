@@ -9,9 +9,10 @@ import { appendAudit } from '../../data/audit';
 interface Props { user: AuthUser }
 
 export default function PeopleTab({ user }: Props) {
-  const [staff, setStaff]   = useState<Staff[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState('');
+  const [staff, setStaff]       = useState<Staff[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState('');
+  const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
     fetchStaff();
@@ -33,6 +34,7 @@ export default function PeopleTab({ user }: Props) {
   function handleRegistered(newStaff: Staff) {
     setStaff((prev) => [newStaff, ...prev]);
     appendAudit(user, 'Staff registered', `${newStaff.full_name} (${newStaff.role_name})`);
+    setShowForm(false);
   }
 
   function handleStaffUpdated(updated: Staff) {
@@ -50,11 +52,25 @@ export default function PeopleTab({ user }: Props) {
           <h2 className="text-stone-800 font-semibold text-xl">People & Permissions</h2>
           <p className="text-stone-500 text-sm mt-0.5">Register and manage your bakery team</p>
         </div>
-        <span className="bg-amber-100 text-amber-800 text-xs font-semibold px-3 py-1 rounded-full border border-amber-200">
-          {staff.length} {staff.length === 1 ? 'member' : 'members'}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="bg-amber-100 text-amber-800 text-xs font-semibold px-3 py-1 rounded-full border border-amber-200">
+            {staff.length} {staff.length === 1 ? 'member' : 'members'}
+          </span>
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors
+              ${showForm
+                ? 'bg-stone-100 border-stone-200 text-stone-600 hover:bg-stone-200'
+                : 'bg-amber-600 hover:bg-amber-700 border-amber-600 text-white'
+              }`}
+          >
+            {showForm ? '✕ Cancel' : '+ Add Person'}
+          </button>
+        </div>
       </div>
-      <StaffRegisterForm onRegistered={handleRegistered} />
+
+      {showForm && <StaffRegisterForm onRegistered={handleRegistered} />}
+
       <StaffList staff={staff} loading={loading} error={error} onStaffUpdated={handleStaffUpdated} />
     </div>
   );

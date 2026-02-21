@@ -2,13 +2,15 @@ import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { getSessionUser, logout } from './api/auth';
 import type { AuthUser } from './types/Staff';
+import { appendAudit } from './data/audit';
 import LoginPage from './pages/LoginPage';
+import HomePage from './pages/HomePage';
 import AdminPage from './pages/AdminPage';
 import CateringPage from './pages/CateringPage';
 import PaymentPage from './pages/PaymentPage';
 
 function homeFor(user: AuthUser): string {
-  return user.role_name === 'Staff' ? '/catering' : '/admin';
+  return user.role_name === 'Staff' ? '/catering' : '/home';
 }
 
 function App() {
@@ -16,9 +18,13 @@ function App() {
 
   function handleLogin(loggedInUser: AuthUser) {
     setUser(loggedInUser);
+    appendAudit(loggedInUser, 'SESSION_START', `${loggedInUser.full_name} signed in as ${loggedInUser.role_name}`);
   }
 
   function handleLogout() {
+    if (user) {
+      appendAudit(user, 'SESSION_END', `${user.full_name} signed out`);
+    }
     logout();
     setUser(null);
   }
@@ -34,6 +40,16 @@ function App() {
           }
         />
 
+        {/* Home — Manager/Owner only (Staff go directly to /catering) */}
+        <Route
+          path="/home"
+          element={
+            !user ? <Navigate to="/login" replace /> :
+            user.role_name === 'Staff' ? <Navigate to="/catering" replace /> :
+            <HomePage user={user} onLogout={handleLogout} />
+          }
+        />
+
         {/* Admin — Manager/Owner only */}
         <Route
           path="/admin"
@@ -44,12 +60,11 @@ function App() {
           }
         />
 
-        {/* Catering — Staff only */}
+        {/* Catering / Order entry — all logged-in roles */}
         <Route
           path="/catering"
           element={
             !user ? <Navigate to="/login" replace /> :
-            user.role_name !== 'Staff' ? <Navigate to={homeFor(user)} replace /> :
             <CateringPage user={user} onLogout={handleLogout} />
           }
         />

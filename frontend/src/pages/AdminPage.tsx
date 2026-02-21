@@ -21,14 +21,8 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 ];
 
 export default function AdminPage({ user, onLogout }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const navigate = useNavigate();
-
-  function goToCatering() {
-    if (window.confirm('Switch to catering view? You will leave the admin panel.')) {
-      navigate('/catering');
-    }
-  }
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
   return (
     <div className="flex flex-col min-h-screen bg-stone-100">
@@ -50,10 +44,10 @@ export default function AdminPage({ user, onLogout }: Props) {
               <span className="text-stone-500 text-xs">({user.role_name})</span>
             </div>
             <button
-              onClick={goToCatering}
-              className="text-sm text-stone-300 hover:text-white border border-stone-600 hover:border-stone-400 rounded-lg px-3 py-1.5 transition-colors"
+              onClick={() => navigate('/home')}
+              className="text-sm text-stone-400 hover:text-stone-200 transition-colors"
             >
-              🧾 Catering
+              ← Home
             </button>
             <button
               onClick={onLogout}
@@ -89,7 +83,7 @@ export default function AdminPage({ user, onLogout }: Props) {
 
       {/* ── Tab content ── */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'dashboard' && <DashboardTab />}
+        {activeTab === 'dashboard' && <DashboardTab user={user} />}
         {activeTab === 'people'    && <PeopleTab user={user} />}
         {activeTab === 'menu'      && <MenuTab user={user} />}
         {activeTab === 'legal'     && <LegalTab user={user} />}

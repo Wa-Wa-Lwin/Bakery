@@ -6,7 +6,7 @@ import { loadMenu, loadRates, DEFAULT_CATEGORIES } from '../data/menu';
 import type { MenuItem } from '../data/menu';
 
 /* ── Data types ──────────────────────────────────────────────── */
-interface CartEntry { item: MenuItem; qty: number }
+interface CartEntry { item: MenuItem; qty: number; deletedAt?: string }
 
 interface HeldOrder {
   id: string;
@@ -212,47 +212,152 @@ function CartRow({ entry, onRemove, onQtyChange, onSetQty }: {
   );
 }
 
-/* ── Customer name modal ─────────────────────────────────────── */
+/* ── Customer name modal with QWERTY keyboard ────────────────── */
+const QWERTY_ROWS = [
+  ['Q','W','E','R','T','Y','U','I','O','P'],
+  ['A','S','D','F','G','H','J','K','L'],
+  ['⇧','Z','X','C','V','B','N','M','⌫'],
+];
+
 function CustomerNameModal({ onConfirm, onCancel }: {
   onConfirm: (name: string) => void;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState('');
+  const [name, setCurName] = useState('');
+  const [caps, setCaps]    = useState(true); // smart-caps: on at start/after space
+
+  function pressKey(key: string) {
+    if (key === '⇧') { setCaps((c) => !c); return; }
+    if (key === '⌫') {
+      setCurName((n) => {
+        const next = n.slice(0, -1);
+        setCaps(next === '' || next.endsWith(' '));
+        return next;
+      });
+      return;
+    }
+    const char = caps ? key.toUpperCase() : key.toLowerCase();
+    setCurName((n) => n + char);
+    setCaps(false); // auto-lowercase after a letter
+  }
+
+  function pressSpace() {
+    setCurName((n) => n + ' ');
+    setCaps(true); // auto-cap after space
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-6">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
-        <div className="bg-amber-700 px-6 py-4 text-center">
-          <div className="w-12 h-12 rounded-full bg-amber-600 border-2 border-amber-500 flex items-center justify-center text-2xl mx-auto mb-2">
-            🧑
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
+        {/* Header */}
+        <div className="bg-amber-700 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-amber-600 border-2 border-amber-500 flex items-center justify-center text-xl">
+              🧑
+            </div>
+            <div>
+              <h3 className="text-white font-semibold text-base">Customer Name</h3>
+              <p className="text-amber-200 text-xs">For order identification</p>
+            </div>
           </div>
-          <h3 className="text-white font-semibold text-base">Customer Name</h3>
-          <p className="text-amber-200 text-xs mt-0.5">For order identification</p>
+          <button onClick={onCancel} className="text-amber-300 hover:text-white text-2xl leading-none w-8 h-8 flex items-center justify-center">×</button>
         </div>
-        <div className="p-6 space-y-4">
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) onConfirm(name.trim()); }}
-            placeholder="Enter name…"
-            autoFocus
-            className="w-full rounded-lg border border-stone-300 px-3 py-2.5 text-stone-800 text-sm
-              focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400
-              bg-stone-50 focus:bg-white transition"
-          />
-          <div className="flex gap-3">
+
+        <div className="p-4 space-y-3">
+          {/* Name display */}
+          <div className="bg-stone-50 rounded-xl border border-stone-200 px-4 py-3 min-h-[52px] flex items-center">
+            <span className={`text-xl font-medium tracking-wide flex-1 ${name ? 'text-stone-800' : 'text-stone-300'}`}>
+              {name || 'Enter customer name…'}
+            </span>
+            {caps && (
+              <span className="text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-md shrink-0">CAPS</span>
+            )}
+          </div>
+
+          {/* QWERTY rows */}
+          <div className="space-y-1.5">
+            {/* Row 1 — 10 keys */}
+            <div className="grid grid-cols-10 gap-1">
+              {QWERTY_ROWS[0].map((k) => (
+                <button
+                  key={k} type="button" onClick={() => pressKey(k)}
+                  className="h-11 rounded-lg bg-stone-100 hover:bg-amber-100 text-stone-800 font-semibold text-sm
+                    transition-all active:scale-95 select-none"
+                >
+                  {caps ? k : k.toLowerCase()}
+                </button>
+              ))}
+            </div>
+
+            {/* Row 2 — 9 keys, centred */}
+            <div className="flex justify-center gap-1">
+              {QWERTY_ROWS[1].map((k) => (
+                <button
+                  key={k} type="button" onClick={() => pressKey(k)}
+                  className="w-[9.5%] min-w-[36px] h-11 rounded-lg bg-stone-100 hover:bg-amber-100 text-stone-800
+                    font-semibold text-sm transition-all active:scale-95 select-none"
+                >
+                  {caps ? k : k.toLowerCase()}
+                </button>
+              ))}
+            </div>
+
+            {/* Row 3 — ⇧  Z X C V B N M  ⌫ */}
+            <div className="flex gap-1">
+              <button
+                type="button" onClick={() => pressKey('⇧')}
+                className={`flex-[1.5] h-11 rounded-lg font-semibold text-sm transition-all active:scale-95 select-none
+                  ${caps ? 'bg-amber-500 text-white' : 'bg-stone-200 hover:bg-stone-300 text-stone-600'}`}
+              >
+                ⇧
+              </button>
+              {QWERTY_ROWS[2].slice(1, -1).map((k) => (
+                <button
+                  key={k} type="button" onClick={() => pressKey(k)}
+                  className="flex-1 h-11 rounded-lg bg-stone-100 hover:bg-amber-100 text-stone-800
+                    font-semibold text-sm transition-all active:scale-95 select-none"
+                >
+                  {caps ? k : k.toLowerCase()}
+                </button>
+              ))}
+              <button
+                type="button" onClick={() => pressKey('⌫')}
+                className="flex-[1.5] h-11 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-600
+                  font-semibold text-xl transition-all active:scale-95 select-none"
+              >
+                ⌫
+              </button>
+            </div>
+
+            {/* Space bar row */}
+            <div className="flex gap-1">
+              <button
+                type="button" onClick={pressSpace}
+                className="flex-1 h-11 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-500
+                  text-sm font-medium transition-all active:scale-95 select-none"
+              >
+                SPACE
+              </button>
+            </div>
+          </div>
+
+          {/* Confirm / Cancel */}
+          <div className="flex gap-3 pt-1">
             <button
               onClick={onCancel}
-              className="flex-1 rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-medium
+              className="flex-1 rounded-xl border border-stone-200 px-4 py-3 text-sm font-medium
                 text-stone-600 hover:bg-stone-50 transition"
-            >Cancel</button>
+            >
+              Cancel
+            </button>
             <button
               onClick={() => { if (name.trim()) onConfirm(name.trim()); }}
               disabled={!name.trim()}
-              className="flex-1 rounded-xl bg-amber-700 hover:bg-amber-800 px-4 py-2.5 text-sm font-semibold
+              className="flex-[2] rounded-xl bg-amber-700 hover:bg-amber-800 px-4 py-3 text-sm font-semibold
                 text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >Confirm Order</button>
+            >
+              Confirm Order →
+            </button>
           </div>
         </div>
       </div>
@@ -275,6 +380,10 @@ export default function CateringPage({ user, onLogout }: Props) {
   const [showModal, setShowModal]     = useState(false);
   const [heldOrders, setHeldOrders]   = useState<HeldOrder[]>(loadHeld);
   const [heldOpen, setHeldOpen]       = useState(false);
+  const [undoItem, setUndoItem]       = useState<CartEntry | null>(null);
+  const undoTimeout                   = useRef<number | null>(null);
+
+  const activeCart = cart.filter((e) => !e.deletedAt);
 
   useEffect(() => {
     setMenuItems(loadMenu());
@@ -290,40 +399,57 @@ export default function CateringPage({ user, onLogout }: Props) {
   function addToCart(item: MenuItem) {
     if (!item.is_published) return;
     setCart((prev) => {
-      const existing = prev.find((e) => e.item.id === item.id);
-      if (existing) return prev.map((e) => e.item.id === item.id ? { ...e, qty: e.qty + 1 } : e);
+      const existing = prev.find((e) => e.item.id === item.id && !e.deletedAt);
+      if (existing) return prev.map((e) => e.item.id === item.id && !e.deletedAt ? { ...e, qty: e.qty + 1 } : e);
       return [...prev, { item, qty: 1 }];
     });
   }
 
+  function removeFromCart(itemId: number) {
+    const entry = activeCart.find((e) => e.item.id === itemId);
+    if (!entry) return;
+    const ts = new Date().toISOString();
+    setCart((prev) => prev.map((e) =>
+      e.item.id === itemId && !e.deletedAt ? { ...e, deletedAt: ts } : e,
+    ));
+    setUndoItem({ ...entry, deletedAt: ts });
+    if (undoTimeout.current !== null) window.clearTimeout(undoTimeout.current);
+    undoTimeout.current = window.setTimeout(() => setUndoItem(null), 3000);
+  }
+
+  function undoRemove() {
+    if (!undoItem) return;
+    setCart((prev) => prev.map((e) =>
+      e.item.id === undoItem.item.id && e.deletedAt === undoItem.deletedAt
+        ? { ...e, deletedAt: undefined }
+        : e,
+    ));
+    setUndoItem(null);
+    if (undoTimeout.current !== null) window.clearTimeout(undoTimeout.current);
+  }
+
   function updateQty(itemId: number, delta: number) {
-    setCart((prev) => {
-      const entry  = prev.find((e) => e.item.id === itemId);
-      if (!entry) return prev;
-      const newQty = entry.qty + delta;
-      if (newQty <= 0) return prev.filter((e) => e.item.id !== itemId);
-      return prev.map((e) => e.item.id === itemId ? { ...e, qty: newQty } : e);
-    });
+    const entry = activeCart.find((e) => e.item.id === itemId);
+    if (!entry) return;
+    const newQty = entry.qty + delta;
+    if (newQty <= 0) { removeFromCart(itemId); return; }
+    setCart((prev) => prev.map((e) => e.item.id === itemId && !e.deletedAt ? { ...e, qty: newQty } : e));
   }
 
   function setQty(itemId: number, qty: number) {
     if (qty <= 0) {
-      setCart((prev) => prev.filter((e) => e.item.id !== itemId));
+      removeFromCart(itemId);
     } else {
-      setCart((prev) => prev.map((e) => e.item.id === itemId ? { ...e, qty } : e));
+      setCart((prev) => prev.map((e) => e.item.id === itemId && !e.deletedAt ? { ...e, qty } : e));
     }
   }
 
-  function removeFromCart(itemId: number) {
-    setCart((prev) => prev.filter((e) => e.item.id !== itemId));
-  }
-
   function holdOrder() {
-    if (cart.length === 0) return;
+    if (activeCart.length === 0) return;
     const held: HeldOrder = {
       id: `HOLD-${Date.now()}`,
       customerName: null,
-      cart: [...cart],
+      cart: [...activeCart],
       orderType,
       heldAt: new Date().toISOString(),
       heldBy: user.full_name,
@@ -353,7 +479,7 @@ export default function CateringPage({ user, onLogout }: Props) {
   }
 
   function handleConfirmOrder(customerName: string) {
-    const subtotal = cart.reduce((s, e) => s + e.item.price * e.qty, 0);
+    const subtotal = activeCart.reduce((s, e) => s + e.item.price * e.qty, 0);
     const vat      = subtotal * vatRate;
     const service  = orderType === 'eat_in' ? subtotal * serviceRate : 0;
     const total    = subtotal + vat + service;
@@ -363,13 +489,13 @@ export default function CateringPage({ user, onLogout }: Props) {
       state: {
         orderId: `ORD-${Date.now()}`,
         customerName,
-        items: cart.map((e) => ({ name: e.item.name, qty: e.qty, price: e.item.price })),
+        items: activeCart.map((e) => ({ name: e.item.name, qty: e.qty, price: e.item.price })),
         subtotal, vat, service, total,
         orderType,
         timestamp: new Date().toISOString(),
         vatRate,
         serviceRate,
-        cartEntries: cart.map((e) => ({
+        cartEntries: activeCart.map((e) => ({
           id: e.item.id,
           categoryId: e.item.categoryId,
           name: e.item.name,
@@ -381,7 +507,7 @@ export default function CateringPage({ user, onLogout }: Props) {
     });
   }
 
-  const subtotal = cart.reduce((s, e) => s + e.item.price * e.qty, 0);
+  const subtotal = activeCart.reduce((s, e) => s + e.item.price * e.qty, 0);
   const vat      = subtotal * vatRate;
   const service  = orderType === 'eat_in' ? subtotal * serviceRate : 0;
   const total    = subtotal + vat + service;
@@ -401,6 +527,14 @@ export default function CateringPage({ user, onLogout }: Props) {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-stone-300 text-sm">{user.full_name}</span>
+            {user.role_name !== 'Staff' && (
+              <button
+                onClick={() => navigate('/home')}
+                className="text-sm text-stone-400 hover:text-stone-200 transition-colors"
+              >
+                ← Home
+              </button>
+            )}
             <button onClick={onLogout} className="text-sm text-amber-400 hover:text-amber-300 transition-colors">Sign Out</button>
           </div>
         </div>
@@ -430,7 +564,7 @@ export default function CateringPage({ user, onLogout }: Props) {
                   {heldOrders.map((h) => (
                     <div key={h.id} className="px-2 py-2 border-b border-stone-700/50 last:border-0">
                       <p className="text-xs font-medium text-stone-200 truncate">
-                        {h.customerName ?? 'Unnamed'}
+                        {h.customerName ? `Customer: ${h.customerName}` : 'Unnamed'}
                       </p>
                       <p className="text-xs text-stone-500 mt-0.5">
                         {new Date(h.heldAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -485,7 +619,7 @@ export default function CateringPage({ user, onLogout }: Props) {
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                 {items.map((item) => {
-                  const inCart      = cart.find((e) => e.item.id === item.id);
+                  const inCart      = activeCart.find((e) => e.item.id === item.id);
                   const unavailable = !item.is_published;
                   return (
                     <button
@@ -532,13 +666,13 @@ export default function CateringPage({ user, onLogout }: Props) {
           <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between shrink-0">
             <h3 className="font-semibold text-stone-800 text-sm">
               Order
-              {cart.length > 0 && (
+              {activeCart.length > 0 && (
                 <span className="ml-2 text-xs font-medium text-stone-400">
-                  {cart.reduce((s, e) => s + e.qty, 0)} items
+                  {activeCart.reduce((s, e) => s + e.qty, 0)} items
                 </span>
               )}
             </h3>
-            {cart.length > 0 && (
+            {activeCart.length > 0 && (
               <button
                 onClick={() => setCart([])}
                 className="text-xs text-stone-400 hover:text-red-400 transition-colors"
@@ -547,7 +681,7 @@ export default function CateringPage({ user, onLogout }: Props) {
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            {cart.length === 0 ? (
+            {activeCart.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-stone-300 gap-2 px-4 select-none">
                 <span className="text-4xl">🛒</span>
                 <p className="text-xs text-center text-stone-400">
@@ -555,7 +689,7 @@ export default function CateringPage({ user, onLogout }: Props) {
                 </p>
               </div>
             ) : (
-              cart.map((entry) => (
+              activeCart.map((entry) => (
                 <CartRow
                   key={entry.item.id}
                   entry={entry}
@@ -567,7 +701,7 @@ export default function CateringPage({ user, onLogout }: Props) {
             )}
           </div>
 
-          {cart.length > 0 && (
+          {activeCart.length > 0 && (
             <div className="border-t border-stone-100 shrink-0">
 
               <div className="px-4 py-3 space-y-1.5">
@@ -635,6 +769,19 @@ export default function CateringPage({ user, onLogout }: Props) {
           )}
         </aside>
       </div>
+
+      {undoItem && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3
+          bg-stone-800 text-white rounded-xl px-4 py-3 shadow-xl">
+          <span className="text-sm">Removed <span className="font-semibold">{undoItem.item.name}</span></span>
+          <button
+            onClick={undoRemove}
+            className="text-amber-400 text-sm font-semibold hover:text-amber-300 transition-colors"
+          >
+            Undo
+          </button>
+        </div>
+      )}
 
       {showModal && (
         <CustomerNameModal
