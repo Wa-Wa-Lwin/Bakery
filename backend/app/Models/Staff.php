@@ -26,6 +26,10 @@ class Staff extends Model
         'can_refund',
     ];
 
+    // protected $hidden = [
+    //     'access_code',
+    // ];
+
     protected function casts(): array
     {
         return [

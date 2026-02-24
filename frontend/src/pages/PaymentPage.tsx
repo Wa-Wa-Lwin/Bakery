@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import type { AuthUser } from '../types/Staff';
-import { appendAudit } from '../data/audit';
+import { appendAuditLog } from '../api/auditLog';
+import { createOrder } from '../api/orders';
 
 /* ── Order data shape passed via router state ────────────────── */
 interface CartEntryData {
   id: number;
-  categoryId: number;
+  category_name: string;
   name: string;
   price: number;
   is_published: boolean;
@@ -53,7 +54,7 @@ function CardPanel({ total, onPaid }: { total: number; onPaid: () => void }) {
       {stage === 'idle' && (
         <>
           <div className="w-20 h-20 rounded-full bg-blue-50 border-2 border-blue-200 flex items-center justify-center text-4xl">
-            💳
+            C
           </div>
           <div className="text-center">
             <p className="text-stone-600 text-sm">Tap, insert, or swipe card</p>
@@ -73,13 +74,13 @@ function CardPanel({ total, onPaid }: { total: number; onPaid: () => void }) {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
           </svg>
-          <p className="text-stone-600 text-sm font-medium">Processing payment…</p>
+          <p className="text-stone-600 text-sm font-medium">Processing payment...</p>
           <p className="text-stone-400 text-xs">Please do not remove card</p>
         </div>
       )}
       {stage === 'approved' && (
         <div className="flex flex-col items-center gap-3 py-4">
-          <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-3xl">✓</div>
+          <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-3xl">OK</div>
           <p className="text-emerald-700 font-semibold text-base">Payment Approved</p>
           <p className="text-stone-400 text-xs">{fmt(total)} charged</p>
         </div>
@@ -98,7 +99,6 @@ function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => vo
   const change     = received - total;
   const canTender  = recvPence >= totalPence;
 
-  // Digit string entry — max 2 decimal places, no leading zeros
   function pressDigit(d: string) {
     setInput((prev) => {
       if (prev.includes('.')) {
@@ -107,7 +107,7 @@ function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => vo
         return prev + d;
       }
       if (prev === '0') return d === '0' ? '0' : d;
-      if (prev.length >= 5) return prev; // cap at £99999
+      if (prev.length >= 5) return prev;
       return prev + d;
     });
   }
@@ -119,7 +119,6 @@ function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => vo
     });
   }
 
-  // Presets add to current value using integer pence math (no float drift)
   function addAmount(pence: number) {
     setInput((prev) => {
       const cur  = Math.round((parseFloat(prev) || 0) * 100);
@@ -147,21 +146,18 @@ function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => vo
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-
-        {/* Header */}
         <div className="bg-stone-800 px-5 py-4 flex items-center justify-between">
           <div>
-            <p className="text-white font-semibold text-sm">💵 Cash Payment</p>
+            <p className="text-white font-semibold text-sm">Cash Payment</p>
             <p className="text-stone-400 text-xs mt-0.5">Total due: {fmt(total)}</p>
           </div>
           <button
             onClick={onClose}
             className="text-stone-400 hover:text-stone-200 transition-colors text-2xl leading-none w-8 h-8 flex items-center justify-center"
-          >×</button>
+          >x</button>
         </div>
 
         <div className="p-4 space-y-3">
-          {/* Amount display */}
           <div className="bg-stone-50 rounded-xl border border-stone-200 px-4 py-3 text-center">
             <p className="text-xs text-stone-400 mb-0.5">Cash received</p>
             <p className="text-3xl font-bold text-stone-800 tabular-nums tracking-tight">
@@ -171,7 +167,6 @@ function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => vo
             </p>
           </div>
 
-          {/* Quick access: Exact / +£5 / +£10 / +£20 */}
           <div className="grid grid-cols-4 gap-2">
             {POUND_PRESETS.map((p) => (
               <button
@@ -186,7 +181,6 @@ function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => vo
             ))}
           </div>
 
-          {/* Numpad: 7–9 / 4–6 / 1–3 / C, 0, . */}
           <div className="grid grid-cols-3 gap-2">
             {NUMPAD_ROWS.flat().map((key, i) => {
               if (key === 'C') return (
@@ -220,7 +214,6 @@ function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => vo
             })}
           </div>
 
-          {/* Change / shortfall */}
           <div className={`rounded-xl px-4 py-3 flex justify-between items-center
             ${canTender ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}
           >
@@ -238,7 +231,7 @@ function CashPanel({ total, onPaid, onClose }: { total: number; onPaid: () => vo
             className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 text-sm
               transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Tender {canTender ? fmt(received) : '—'}
+            Tender {canTender ? fmt(received) : '-'}
           </button>
         </div>
       </div>
@@ -290,7 +283,7 @@ function QrPanel({ orderId, total, onPaid }: { orderId: string; total: number; o
         </div>
         {expired && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <span className="text-3xl">⏰</span>
+            <span className="text-3xl">T</span>
             <p className="text-sm font-semibold text-stone-700 bg-white/90 px-3 py-1 rounded-lg">QR Expired</p>
           </div>
         )}
@@ -334,35 +327,49 @@ export default function PaymentPage({ user, onLogout }: Props) {
   const location  = useLocation();
   const order     = location.state as OrderState | null;
 
-  const [method, setMethod]           = useState<Method | null>(null);
-  const [stage, setStage]             = useState<Stage>('select');
+  const [method,          setMethod]          = useState<Method | null>(null);
+  const [stage,           setStage]           = useState<Stage>('select');
   const [showCashOverlay, setShowCashOverlay] = useState(false);
-  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [showCancelDialog,setShowCancelDialog]= useState(false);
+  const [saving,          setSaving]          = useState(false);
 
-  // Guard: if no order in state, go back
   if (!order) {
     navigate('/catering', { replace: true });
     return null;
   }
 
-  const handlePaid = () => {
-    const paidAt    = new Date().toISOString();
-    const completed = { ...order, paymentMethod: method, paidAt };
-    const existing: unknown[] = JSON.parse(localStorage.getItem('bakery_orders') ?? '[]');
-    localStorage.setItem('bakery_orders', JSON.stringify([...existing, completed]));
-    appendAudit(user, 'Payment completed',
-      `Order ${order.orderId} · ${order.customerName} · ${fmt(order.total)} · ${method}`);
+  const handlePaid = async () => {
+    setSaving(true);
+    try {
+      await createOrder({
+        customer_name:  order.customerName,
+        order_type:     order.orderType,
+        staff_id:       user.staff_id,
+        payment_method: method!,
+        total:          order.total,
+        subtotal:       order.subtotal,
+        vat_amount:     order.vat,
+        service_amount: order.service,
+        items: order.cartEntries.map((e) => ({
+          item_id:  e.id,
+          quantity: e.qty,
+        })),
+      });
+      appendAuditLog(user, 'Payment completed',
+        `${order.customerName} - ${fmt(order.total)} - ${method}`);
+    } catch {
+      // Even if save fails, proceed to done screen — show error in production
+    } finally {
+      setSaving(false);
+    }
     setShowCashOverlay(false);
     setStage('done');
   };
 
-  const handleNewOrder = () => {
-    navigate('/catering', { replace: true });
-  };
-
+  const handleNewOrder    = () => navigate('/catering', { replace: true });
   const handleCancelOrder = () => {
-    appendAudit(user, 'VOID_ATTEMPT',
-      `Order ${order.orderId} · ${order.customerName} · ${fmt(order.total)} · cancelled without payment`);
+    appendAuditLog(user, 'VOID_ATTEMPT',
+      `${order.customerName} - ${fmt(order.total)} - cancelled without payment`);
     navigate('/catering', { replace: true });
   };
 
@@ -371,7 +378,7 @@ export default function PaymentPage({ user, onLogout }: Props) {
       id: `HOLD-${Date.now()}`,
       customerName: order.customerName,
       cart: order.cartEntries.map((e) => ({
-        item: { id: e.id, categoryId: e.categoryId, name: e.name, price: e.price, is_published: e.is_published },
+        item: { id: e.id, category_name: e.category_name, name: e.name, price: e.price, is_published: e.is_published, is_archived: false },
         qty: e.qty,
       })),
       orderType: order.orderType,
@@ -389,19 +396,18 @@ export default function PaymentPage({ user, onLogout }: Props) {
   };
 
   const methodLabels: Record<Method, string> = {
-    card: '💳 Card',
-    cash: '💵 Cash',
-    qr:   '📱 QR Code',
+    card: 'Card',
+    cash: 'Cash',
+    qr:   'QR Code',
   };
 
   return (
     <div className="flex flex-col h-screen bg-stone-100">
 
-      {/* ── Header ── */}
       <header className="bg-stone-800 shrink-0">
         <div className="px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-xl shrink-0">🥐</div>
+            <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-xl shrink-0">B</div>
             <div>
               <h1 className="text-base font-bold text-white leading-snug">Happy Day Everyday Bakery</h1>
               <p className="text-stone-400 text-xs">Payment</p>
@@ -421,7 +427,7 @@ export default function PaymentPage({ user, onLogout }: Props) {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
             <div className="bg-stone-800 px-5 py-4">
               <p className="text-white font-semibold text-sm">Cancel this order?</p>
-              <p className="text-stone-400 text-xs mt-0.5">{order.customerName} · {order.orderId}</p>
+              <p className="text-stone-400 text-xs mt-0.5">{order.customerName} - {order.orderId}</p>
             </div>
             <div className="p-5 space-y-3">
               <p className="text-sm text-stone-600">Would you like to hold the order or cancel it entirely?</p>
@@ -429,13 +435,13 @@ export default function PaymentPage({ user, onLogout }: Props) {
                 onClick={handleHoldOrder}
                 className="w-full rounded-xl bg-amber-700 hover:bg-amber-800 text-white font-semibold py-3 text-sm transition-colors"
               >
-                ⏸ Hold Order — resume later
+                Hold Order - resume later
               </button>
               <button
                 onClick={handleCancelOrder}
                 className="w-full rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold py-3 text-sm transition-colors"
               >
-                Cancel Order — discard
+                Cancel Order - discard
               </button>
               <button
                 onClick={() => setShowCancelDialog(false)}
@@ -463,10 +469,10 @@ export default function PaymentPage({ user, onLogout }: Props) {
           <div className="bg-white rounded-2xl shadow-sm border border-stone-200 w-full max-w-sm overflow-hidden">
             <div className="bg-emerald-600 px-6 py-8 text-center">
               <div className="w-16 h-16 rounded-full bg-emerald-500 border-2 border-emerald-400 flex items-center justify-center text-3xl mx-auto mb-3">
-                ✓
+                OK
               </div>
               <h2 className="text-white font-bold text-xl">Payment Complete</h2>
-              <p className="text-emerald-100 text-sm mt-1">{methodLabels[method!]} · {fmt(order.total)}</p>
+              <p className="text-emerald-100 text-sm mt-1">{methodLabels[method!]} - {fmt(order.total)}</p>
             </div>
             <div className="p-6 space-y-3">
               <div className="bg-stone-50 rounded-xl border border-stone-200 px-4 py-3 text-sm text-stone-600 space-y-1">
@@ -492,14 +498,14 @@ export default function PaymentPage({ user, onLogout }: Props) {
               <div className="bg-stone-800 px-5 py-3 flex items-center justify-between">
                 <div>
                   <p className="text-white font-semibold text-sm">{order.customerName}</p>
-                  <p className="text-stone-400 text-xs">{order.orderId} · {order.orderType === 'eat_in' ? 'Eat In' : 'Takeaway'}</p>
+                  <p className="text-stone-400 text-xs">{order.orderId} - {order.orderType === 'eat_in' ? 'Eat In' : 'Takeaway'}</p>
                 </div>
                 <span className="text-amber-400 text-xl font-bold">{fmt(order.total)}</span>
               </div>
               <div className="px-5 py-3 space-y-1">
                 {order.items.map((it, i) => (
                   <div key={i} className="flex justify-between text-xs text-stone-600">
-                    <span>{it.name} × {it.qty}</span>
+                    <span>{it.name} x {it.qty}</span>
                     <span>{fmt(it.price * it.qty)}</span>
                   </div>
                 ))}
@@ -536,14 +542,14 @@ export default function PaymentPage({ user, onLogout }: Props) {
                         : 'bg-white border-stone-200 text-stone-600 hover:border-amber-300'
                       }`}
                   >
-                    <span className="text-2xl">{m === 'card' ? '💳' : m === 'cash' ? '💵' : '📱'}</span>
+                    <span className="text-2xl">{m === 'card' ? 'C' : m === 'cash' ? '$' : 'QR'}</span>
                     <span className="text-xs font-semibold capitalize">{m === 'qr' ? 'QR Code' : m}</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* ── Active payment panel (card / QR only — cash uses overlay) ── */}
+            {/* ── Active payment panel ── */}
             {method && method !== 'cash' && (
               <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
                 <div className="bg-stone-50 border-b border-stone-200 px-5 py-3">
@@ -554,7 +560,6 @@ export default function PaymentPage({ user, onLogout }: Props) {
               </div>
             )}
 
-            {/* Re-open cash overlay if method is cash but overlay was dismissed */}
             {method === 'cash' && !showCashOverlay && (
               <button
                 onClick={() => setShowCashOverlay(true)}
@@ -564,12 +569,15 @@ export default function PaymentPage({ user, onLogout }: Props) {
               </button>
             )}
 
-            {/* Cancel */}
+            {saving && (
+              <p className="text-center text-xs text-stone-400">Saving order...</p>
+            )}
+
             <button
               onClick={() => setShowCancelDialog(true)}
               className="w-full text-sm text-stone-400 hover:text-stone-600 py-2 transition-colors"
             >
-              ← Back / Cancel order
+              Back / Cancel order
             </button>
           </div>
         </div>

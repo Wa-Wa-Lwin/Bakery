@@ -15,13 +15,19 @@ class Payment extends Model
     protected $fillable = [
         'order_id',
         'total',
+        'subtotal',
+        'vat_amount',
+        'service_amount',
         'payment_method_name',
     ];
 
     protected function casts(): array
     {
         return [
-            'total' => 'decimal:2',
+            'total'          => 'decimal:2',
+            'subtotal'       => 'decimal:2',
+            'vat_amount'     => 'decimal:2',
+            'service_amount' => 'decimal:2',
         ];
     }
 

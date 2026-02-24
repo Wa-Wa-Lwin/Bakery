@@ -1,43 +1,31 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { loadRates, saveRates } from '../../data/menu';
-import { loadAudit, appendAudit } from '../../data/audit';
+import { appendAuditLog, getAuditLogs, type ApiAuditEntry } from '../../api/auditLog';
+import { getOrders, type ApiOrder } from '../../api/orders';
 import type { AuthUser } from '../../types/Staff';
 
 interface Props { user: AuthUser }
 
 function fmt(n: number) { return `£${n.toFixed(2)}`; }
 
-function todayPrefix() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-interface OrderRecord {
-  orderId: string;
-  customerName: string;
-  total: number;
-  paymentMethod: 'card' | 'cash' | 'qr';
-  paidAt: string;
-}
-
 export default function LegalTab({ user }: Props) {
-  const rates    = loadRates();
-  const [vatInput, setVatInput]         = useState(String((rates.vat * 100).toFixed(1)));
+  const rates = loadRates();
+  const [vatInput,     setVatInput]     = useState(String((rates.vat * 100).toFixed(1)));
   const [serviceInput, setServiceInput] = useState(String((rates.service * 100).toFixed(1)));
-  const [ratesSaved, setRatesSaved]     = useState(false);
+  const [ratesSaved,   setRatesSaved]   = useState(false);
+  const [actualCash,   setActualCash]   = useState('');
+  const [eodSaved,     setEodSaved]     = useState(false);
+  const [auditEntries, setAuditEntries] = useState<ApiAuditEntry[]>([]);
+  const [cashOrders,   setCashOrders]   = useState<ApiOrder[]>([]);
 
-  const [actualCash, setActualCash] = useState('');
-  const [eodSaved, setEodSaved]     = useState(false);
-
-  const auditEntries = useMemo(() => loadAudit(), []);
-
-  const todayCashOrders = useMemo<OrderRecord[]>(() => {
-    try {
-      const all: OrderRecord[] = JSON.parse(localStorage.getItem('bakery_orders') ?? '[]');
-      return all.filter((o) => o.paymentMethod === 'cash' && o.paidAt?.startsWith(todayPrefix()));
-    } catch { return []; }
+  useEffect(() => {
+    getAuditLogs().then(setAuditEntries);
+    getOrders('today').then((orders) =>
+      setCashOrders(orders.filter((o) => o.payment?.method === 'cash'))
+    );
   }, []);
 
-  const expectedCash  = todayCashOrders.reduce((s, o) => s + o.total, 0);
+  const expectedCash  = cashOrders.reduce((s, o) => s + (o.payment?.total ?? 0), 0);
   const actualCashVal = parseFloat(actualCash) || 0;
   const discrepancy   = actualCashVal - expectedCash;
 
@@ -46,14 +34,15 @@ export default function LegalTab({ user }: Props) {
     const service = parseFloat(serviceInput) / 100;
     if (isNaN(vat) || isNaN(service) || vat < 0 || service < 0) return;
     saveRates({ vat, service });
-    appendAudit(user, 'Rates updated', `VAT ${(vat * 100).toFixed(1)}% · Service ${(service * 100).toFixed(1)}%`);
+    appendAuditLog(user, 'Rates updated', `VAT ${(vat * 100).toFixed(1)}% - Service ${(service * 100).toFixed(1)}%`);
     setRatesSaved(true);
     setTimeout(() => setRatesSaved(false), 2500);
   }
 
-  function saveEod() {
-    appendAudit(user, 'EOD cash reconciliation',
-      `Expected ${fmt(expectedCash)} · Actual ${fmt(actualCashVal)} · Discrepancy ${discrepancy >= 0 ? '+' : ''}${fmt(discrepancy)}`);
+  async function saveEod() {
+    await appendAuditLog(user, 'EOD cash reconciliation',
+      `Expected ${fmt(expectedCash)} - Actual ${fmt(actualCashVal)} - Discrepancy ${discrepancy >= 0 ? '+' : ''}${fmt(discrepancy)}`);
+    getAuditLogs().then(setAuditEntries);
     setEodSaved(true);
     setTimeout(() => setEodSaved(false), 2500);
   }
@@ -110,7 +99,7 @@ export default function LegalTab({ user }: Props) {
             className={`mt-4 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-colors
               ${ratesSaved ? 'bg-emerald-600' : 'bg-amber-700 hover:bg-amber-800'}`}
           >
-            {ratesSaved ? '✓ Saved' : 'Save Rates'}
+            {ratesSaved ? 'Saved' : 'Save Rates'}
           </button>
         </div>
       </div>
@@ -127,7 +116,7 @@ export default function LegalTab({ user }: Props) {
           <div className="grid grid-cols-3 gap-4 text-center">
             <div className="bg-stone-50 rounded-xl border border-stone-200 px-4 py-3">
               <p className="text-xs text-stone-500">Cash orders</p>
-              <p className="text-xl font-bold text-stone-800 mt-1">{todayCashOrders.length}</p>
+              <p className="text-xl font-bold text-stone-800 mt-1">{cashOrders.length}</p>
             </div>
             <div className="bg-amber-50 rounded-xl border border-amber-200 px-4 py-3">
               <p className="text-xs text-amber-700">Expected cash</p>
@@ -146,7 +135,7 @@ export default function LegalTab({ user }: Props) {
               <p className={`text-xl font-bold mt-1 ${actualCash === '' ? 'text-stone-400' :
                 discrepancy === 0 ? 'text-emerald-700' :
                 discrepancy > 0 ? 'text-blue-700' : 'text-red-700'}`}>
-                {actualCash === '' ? '—' : `${discrepancy >= 0 ? '+' : ''}${fmt(discrepancy)}`}
+                {actualCash === '' ? '-' : `${discrepancy >= 0 ? '+' : ''}${fmt(discrepancy)}`}
               </p>
             </div>
           </div>
@@ -171,7 +160,7 @@ export default function LegalTab({ user }: Props) {
                 ${eodSaved ? 'bg-emerald-600' : 'bg-stone-700 hover:bg-stone-800'}
                 disabled:opacity-40 disabled:cursor-not-allowed`}
             >
-              {eodSaved ? '✓ Logged' : 'Log to Audit'}
+              {eodSaved ? 'Logged' : 'Log to Audit'}
             </button>
           </div>
         </div>

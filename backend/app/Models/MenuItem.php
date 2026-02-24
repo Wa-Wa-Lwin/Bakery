@@ -16,12 +16,16 @@ class MenuItem extends Model
         'item_name',
         'unit_cost',
         'category_name',
+        'is_published',
+        'is_archived',
     ];
 
     protected function casts(): array
     {
         return [
-            'unit_cost' => 'decimal:2',
+            'unit_cost'    => 'decimal:2',
+            'is_published' => 'boolean',
+            'is_archived'  => 'boolean',
         ];
     }
 

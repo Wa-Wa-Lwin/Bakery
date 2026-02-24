@@ -19,6 +19,7 @@ class Order extends Model
         'order_created_datetime',
         'order_updated_datetime',
         'external_ref',
+        'customer_name',
         'status_name',
         'table_id',
         'created_staff_id',

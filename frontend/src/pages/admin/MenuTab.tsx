@@ -1,31 +1,34 @@
-import { useState } from 'react';
-import { loadMenu, saveMenu, DEFAULT_CATEGORIES } from '../../data/menu';
+import { useState, useEffect } from 'react';
+import { getCategoryIcon } from '../../data/menu';
 import type { MenuItem } from '../../data/menu';
 import type { AuthUser } from '../../types/Staff';
-import { appendAudit } from '../../data/audit';
+import { appendAuditLog } from '../../api/auditLog';
+import { getMenuItems, getCategories, createMenuItem, updateMenuItem, updateChannelStatus } from '../../api/menu';
+import CategoryCombobox from '../../components/CategoryCombobox';
 
 interface Props { user: AuthUser }
 
 /* ── Add item modal ── */
-function AddItemModal({ onAdd, onCancel }: {
-  onAdd: (item: Omit<MenuItem, 'id'>) => void;
+function AddItemModal({ categories, onAdd, onCancel }: {
+  categories: string[];
+  onAdd: (data: { name: string; price: number; category_name: string }) => void;
   onCancel: () => void;
 }) {
   const [itemName, setItemName] = useState('');
-  const [price, setPrice]       = useState('');
-  const [categoryId, setCatId]  = useState(1);
+  const [price,    setPrice]    = useState('');
+  const [catName,  setCatName]  = useState(categories[0] ?? '');
 
-  const valid = itemName.trim() && parseFloat(price) > 0;
+  const valid = itemName.trim() && parseFloat(price) > 0 && catName.trim();
 
   function handleSubmit() {
     if (!valid) return;
-    onAdd({ name: itemName.trim(), price: parseFloat(price), categoryId, is_published: true });
+    onAdd({ name: itemName.trim(), price: parseFloat(price), category_name: catName.trim() });
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-6">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
-        <div className="bg-amber-700 px-5 py-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+        <div className="bg-amber-700 px-5 py-4 rounded-t-2xl">
           <h3 className="text-white font-semibold text-base">Add Menu Item</h3>
           <p className="text-amber-200 text-xs mt-0.5">New item will be published by default</p>
         </div>
@@ -57,16 +60,12 @@ function AddItemModal({ onAdd, onCancel }: {
           </div>
           <div className="space-y-1">
             <label className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Category</label>
-            <select
-              value={categoryId}
-              onChange={(e) => setCatId(Number(e.target.value))}
-              className="w-full rounded-lg border border-stone-300 px-3 py-2.5 text-sm text-stone-800
-                focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 bg-stone-50 focus:bg-white transition"
-            >
-              {DEFAULT_CATEGORIES.map((c) => (
-                <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
-              ))}
-            </select>
+            <CategoryCombobox
+              value={catName}
+              onChange={setCatName}
+              categories={categories}
+              placeholder="Select or type a category..."
+            />
           </div>
           <div className="flex gap-3 pt-1">
             <button
@@ -137,53 +136,89 @@ function PublishToggle({ published, onChange }: { published: boolean; onChange: 
 }
 
 export default function MenuTab({ user }: Props) {
-  const [items, setItems]       = useState<MenuItem[]>(() => loadMenu());
-  const [selectedCat, setSelectedCat] = useState(DEFAULT_CATEGORIES[0].id);
-  const [showAdd, setShowAdd]   = useState(false);
+  const [items,        setItems]        = useState<MenuItem[]>([]);
+  const [categories,   setCategories]   = useState<string[]>([]);
+  const [selectedCat,  setSelectedCat]  = useState('');
+  const [showAdd,      setShowAdd]      = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [loading,      setLoading]      = useState(true);
 
-  const visibleItems  = items.filter((i) => i.categoryId === selectedCat && !i.is_archived);
-  const archivedItems = items.filter((i) => i.categoryId === selectedCat && i.is_archived);
+  useEffect(() => {
+    Promise.all([getMenuItems(), getCategories()])
+      .then(([its, cats]) => {
+        setItems(its);
+        setCategories(cats);
+        if (cats.length > 0) setSelectedCat(cats[0]);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
-  function persist(updated: MenuItem[]) {
-    setItems(updated);
-    saveMenu(updated);
+  const catNames      = [...new Set([...categories, ...items.map((i) => i.category_name)])].sort();
+  const visibleItems  = items.filter((i) => i.category_name === selectedCat && !i.is_archived);
+  const archivedItems = items.filter((i) => i.category_name === selectedCat && i.is_archived);
+
+  async function togglePublish(item: MenuItem) {
+    const next    = !item.is_published;
+    const updated = await updateMenuItem(item.id, { is_published: next });
+    setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, ...updated } : i));
+    appendAuditLog(user, next ? 'Item published' : 'Item unpublished', `${item.name} (${item.category_name})`);
   }
 
-  function togglePublish(item: MenuItem) {
-    const next = !item.is_published;
-    const updated = items.map((i) => i.id === item.id ? { ...i, is_published: next } : i);
-    persist(updated);
-    appendAudit(user,
-      next ? 'Item published' : 'Item unpublished',
-      `${item.name} (${DEFAULT_CATEGORIES.find((c) => c.id === item.categoryId)?.name})`);
+  async function updatePrice(item: MenuItem, price: number) {
+    const updated = await updateMenuItem(item.id, { unit_cost: price });
+    setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, ...updated } : i));
+    appendAuditLog(user, 'Price updated', `${item.name}: £${item.price.toFixed(2)} -> £${price.toFixed(2)}`);
   }
 
-  function updatePrice(item: MenuItem, price: number) {
-    const updated = items.map((i) => i.id === item.id ? { ...i, price } : i);
-    persist(updated);
-    appendAudit(user, 'Price updated', `${item.name}: £${item.price.toFixed(2)} → £${price.toFixed(2)}`);
+  async function archiveItem(item: MenuItem) {
+    const updated = await updateMenuItem(item.id, { is_archived: true, is_published: false });
+    setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, ...updated } : i));
+    appendAuditLog(user, 'Item archived', item.name);
   }
 
-  function archiveItem(item: MenuItem) {
-    const updated = items.map((i) => i.id === item.id ? { ...i, is_archived: true, is_published: false } : i);
-    persist(updated);
-    appendAudit(user, 'Item archived', item.name);
+  async function restoreItem(item: MenuItem) {
+    const updated = await updateMenuItem(item.id, { is_archived: false });
+    setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, ...updated } : i));
+    appendAuditLog(user, 'Item restored', item.name);
   }
 
-  function restoreItem(item: MenuItem) {
-    const updated = items.map((i) => i.id === item.id ? { ...i, is_archived: false } : i);
-    persist(updated);
-    appendAudit(user, 'Item restored', item.name);
+  async function toggleChannel(item: MenuItem, orderTypeId: number) {
+    const channel = item.channels?.find((c) => c.order_type_id === orderTypeId);
+    const next = !(channel?.is_available ?? false);
+    await updateChannelStatus(item.id, orderTypeId, next);
+    setItems((prev) => prev.map((i) =>
+      i.id === item.id
+        ? { ...i, channels: i.channels?.map((c) => c.order_type_id === orderTypeId ? { ...c, is_available: next } : c) }
+        : i,
+    ));
+    appendAuditLog(user, `Channel ${next ? 'enabled' : 'disabled'}`,
+      `${item.name} - ${orderTypeId === 1 ? 'Takeaway' : 'Eat In'}`);
   }
 
-  function addItem(data: Omit<MenuItem, 'id'>) {
-    const maxId   = items.reduce((m, i) => Math.max(m, i.id), 0);
-    const newItem = { ...data, id: maxId + 1 };
-    const updated = [...items, newItem];
-    persist(updated);
+  async function addItem(data: { name: string; price: number; category_name: string }) {
+    const newItem = await createMenuItem({
+      item_name:     data.name,
+      unit_cost:     data.price,
+      category_name: data.category_name,
+      is_published:  true,
+    });
+    setItems((prev) => [...prev, newItem]);
+    if (!categories.includes(data.category_name)) {
+      setCategories((prev) => [...prev, data.category_name].sort());
+    }
+    setSelectedCat(data.category_name);
     setShowAdd(false);
-    appendAudit(user, 'Item added', `${newItem.name} · £${newItem.price.toFixed(2)}`);
+    appendAuditLog(user, 'Item added', `${newItem.name} - £${newItem.price.toFixed(2)}`);
+  }
+
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto px-6 py-6">
+        <div className="animate-pulse space-y-3">
+          {[1, 2, 3].map((n) => <div key={n} className="h-12 bg-stone-100 rounded-xl" />)}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -204,19 +239,19 @@ export default function MenuTab({ user }: Props) {
 
       {/* Category tabs */}
       <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
-        {DEFAULT_CATEGORIES.map((cat) => (
+        {catNames.map((cat) => (
           <button
-            key={cat.id}
-            onClick={() => setSelectedCat(cat.id)}
+            key={cat}
+            onClick={() => setSelectedCat(cat)}
             className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold whitespace-nowrap transition-colors
-              ${selectedCat === cat.id
+              ${selectedCat === cat
                 ? 'bg-amber-700 text-white'
                 : 'bg-white border border-stone-200 text-stone-600 hover:border-amber-300'
               }`}
           >
-            <span>{cat.icon}</span> {cat.name}
-            <span className={`text-xs ml-0.5 ${selectedCat === cat.id ? 'text-amber-200' : 'text-stone-400'}`}>
-              ({items.filter((i) => i.categoryId === cat.id && !i.is_archived).length})
+            <span>{getCategoryIcon(cat)}</span> {cat}
+            <span className={`text-xs ml-0.5 ${selectedCat === cat ? 'text-amber-200' : 'text-stone-400'}`}>
+              ({items.filter((i) => i.category_name === cat && !i.is_archived).length})
             </span>
           </button>
         ))}
@@ -230,13 +265,15 @@ export default function MenuTab({ user }: Props) {
               <th className="px-5 py-3 text-left text-xs font-semibold text-stone-500 uppercase tracking-wide">Item</th>
               <th className="px-5 py-3 text-left text-xs font-semibold text-stone-500 uppercase tracking-wide">Price</th>
               <th className="px-5 py-3 text-center text-xs font-semibold text-stone-500 uppercase tracking-wide">Published</th>
+              <th className="px-3 py-3 text-center text-xs font-semibold text-stone-500 uppercase tracking-wide">Takeaway</th>
+              <th className="px-3 py-3 text-center text-xs font-semibold text-stone-500 uppercase tracking-wide">Eat In</th>
               <th className="px-5 py-3 text-right text-xs font-semibold text-stone-500 uppercase tracking-wide">Actions</th>
             </tr>
           </thead>
           <tbody>
             {visibleItems.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-5 py-8 text-center text-stone-400 text-sm">No items in this category</td>
+                <td colSpan={6} className="px-5 py-8 text-center text-stone-400 text-sm">No items in this category</td>
               </tr>
             ) : (
               visibleItems.map((item) => (
@@ -253,11 +290,23 @@ export default function MenuTab({ user }: Props) {
                       </span>
                     </div>
                   </td>
+                  <td className="px-3 py-3.5 text-center">
+                    <PublishToggle
+                      published={item.channels?.find((c) => c.order_type_id === 1)?.is_available ?? false}
+                      onChange={() => toggleChannel(item, 1)}
+                    />
+                  </td>
+                  <td className="px-3 py-3.5 text-center">
+                    <PublishToggle
+                      published={item.channels?.find((c) => c.order_type_id === 2)?.is_available ?? false}
+                      onChange={() => toggleChannel(item, 2)}
+                    />
+                  </td>
                   <td className="px-5 py-3.5 text-right">
                     <button
                       onClick={() => archiveItem(item)}
                       className="text-xs text-stone-400 hover:text-red-500 transition-colors font-medium"
-                      title="Archive — can be restored later"
+                      title="Archive - can be restored later"
                     >
                       Archive
                     </button>
@@ -285,7 +334,7 @@ export default function MenuTab({ user }: Props) {
             <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide">
               Archived ({archivedItems.length})
             </span>
-            <span className="text-stone-400 text-xs">{showArchived ? '▲ Hide' : '▼ Show'}</span>
+            <span className="text-stone-400 text-xs">{showArchived ? 'Hide' : 'Show'}</span>
           </button>
           {showArchived && (
             <table className="w-full text-sm border-t border-stone-100">
@@ -310,7 +359,13 @@ export default function MenuTab({ user }: Props) {
         </div>
       )}
 
-      {showAdd && <AddItemModal onAdd={addItem} onCancel={() => setShowAdd(false)} />}
+      {showAdd && (
+        <AddItemModal
+          categories={catNames}
+          onAdd={addItem}
+          onCancel={() => setShowAdd(false)}
+        />
+      )}
     </div>
   );
 }

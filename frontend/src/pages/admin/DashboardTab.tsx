@@ -1,178 +1,130 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import type { AuthUser } from '../../types/Staff';
-import { appendAudit } from '../../data/audit';
-import { loadMenu, DEFAULT_CATEGORIES } from '../../data/menu';
-
-interface OrderRecord {
-  orderId: string;
-  customerName: string;
-  items: { name: string; qty: number; price: number }[];
-  subtotal: number;
-  total: number;
-  orderType: string;
-  paymentMethod: 'card' | 'cash' | 'qr';
-  paidAt: string;
-}
-
-interface WasteEntry {
-  id: string;
-  itemName: string;
-  qty: number;
-  unitCost: number;
-  recordedBy: string;
-  recordedAt: string;
-}
+import { appendAuditLog } from '../../api/auditLog';
+import { getMenuItems } from '../../api/menu';
+import { getOrders, type ApiOrder } from '../../api/orders';
+import { getWaste, logWaste, deleteWaste, type ApiWasteEntry } from '../../api/waste';
+import type { MenuItem } from '../../data/menu';
 
 type WasteFilter = 'today' | 'week' | 'month' | 'year' | 'all';
 
 function fmt(n: number) { return `£${n.toFixed(2)}`; }
 
-function todayPrefix() {
-  return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
-}
-
-function filterWasteByMode(entries: WasteEntry[], mode: WasteFilter): WasteEntry[] {
-  const now = new Date();
-  return entries.filter((w) => {
-    const d = new Date(w.recordedAt);
-    switch (mode) {
-      case 'today':
-        return w.recordedAt.startsWith(todayPrefix());
-      case 'week': {
-        const msPerDay = 1000 * 60 * 60 * 24;
-        return (now.getTime() - d.getTime()) / msPerDay < 7;
-      }
-      case 'month':
-        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-      case 'year':
-        return d.getFullYear() === now.getFullYear();
-      case 'all':
-        return true;
-    }
-  });
-}
-
-const WASTE_KEY = 'bakery_waste';
-
-function loadWaste(): WasteEntry[] {
-  try {
-    const raw = localStorage.getItem(WASTE_KEY);
-    if (raw) return JSON.parse(raw) as WasteEntry[];
-  } catch { /* fallthrough */ }
-  return [];
-}
-
-function saveWaste(entries: WasteEntry[]) {
-  localStorage.setItem(WASTE_KEY, JSON.stringify(entries));
-}
-
-const QTY_ROWS = [['7','8','9'],['4','5','6'],['1','2','3'],['⌫','0','C']] as const;
+const QTY_ROWS = [['7','8','9'],['4','5','6'],['1','2','3'],['','0','C']] as const;
 
 const FILTER_OPTS: { label: string; mode: WasteFilter }[] = [
-  { label: 'Today',     mode: 'today' },
-  { label: 'This Week', mode: 'week'  },
-  { label: 'This Month',mode: 'month' },
-  { label: 'This Year', mode: 'year'  },
-  { label: 'All Time',  mode: 'all'   },
+  { label: 'Today',      mode: 'today' },
+  { label: 'This Week',  mode: 'week'  },
+  { label: 'This Month', mode: 'month' },
+  { label: 'This Year',  mode: 'year'  },
+  { label: 'All Time',   mode: 'all'   },
 ];
 
 interface Props { user: AuthUser }
 
 export default function DashboardTab({ user }: Props) {
-  const menuItems = useMemo(() => loadMenu(), []);
-
-  const [wasteEntries, setWasteEntries] = useState<WasteEntry[]>(loadWaste);
+  const [menuItems,     setMenuItems]     = useState<MenuItem[]>([]);
+  const [wasteEntries,  setWasteEntries]  = useState<ApiWasteEntry[]>([]);
+  const [todayOrders,   setTodayOrders]   = useState<ApiOrder[]>([]);
   const [showWasteForm, setShowWasteForm] = useState(false);
-  const [wasteCatId, setWasteCatId]       = useState('');
-  const [wasteItemId, setWasteItemId]     = useState('');
-  const [wasteQty, setWasteQty]           = useState('');
-  const [wasteUnit, setWasteUnit]         = useState('');
-  const [wasteFilter, setWasteFilter]     = useState<WasteFilter>('today');
+  const [wasteCatName,  setWasteCatName]  = useState('');
+  const [wasteItemId,   setWasteItemId]   = useState('');
+  const [wasteQty,      setWasteQty]      = useState('');
+  const [wasteUnit,     setWasteUnit]     = useState('');
+  const [wasteFilter,   setWasteFilter]   = useState<WasteFilter>('today');
+  const [loadingWaste,  setLoadingWaste]  = useState(false);
 
-  const wasteCatItems = wasteCatId
-    ? menuItems.filter((m) => m.categoryId === Number(wasteCatId) && !m.is_archived)
-    : [];
+  const loadWasteForFilter = useCallback(async (filter: WasteFilter) => {
+    setLoadingWaste(true);
+    try {
+      const entries = await getWaste(filter);
+      setWasteEntries(entries);
+    } finally {
+      setLoadingWaste(false);
+    }
+  }, []);
 
-  function handleWasteCatChange(catId: string) {
-    setWasteCatId(catId);
-    setWasteItemId('');
-    setWasteUnit('');
-  }
+  useEffect(() => {
+    getMenuItems().then(setMenuItems);
+    getOrders('today').then(setTodayOrders);
+    loadWasteForFilter('today');
+  }, [loadWasteForFilter]);
+
+  useEffect(() => { loadWasteForFilter(wasteFilter); }, [wasteFilter, loadWasteForFilter]);
+
+  // All non-archived items for the waste item picker
+  const allAvailableItems = useMemo(
+    () => menuItems.filter((m) => !m.is_archived),
+    [menuItems],
+  );
 
   function handleWasteItemChange(itemId: string) {
     setWasteItemId(itemId);
-    if (!itemId) { setWasteUnit(''); return; }
+    if (!itemId) { setWasteUnit(''); setWasteCatName(''); return; }
     const item = menuItems.find((m) => m.id === Number(itemId));
-    if (item) { setWasteUnit(item.price.toFixed(2)); }
+    if (item) {
+      setWasteUnit(item.price.toFixed(2));
+      setWasteCatName(item.category_name);
+    }
   }
 
   function pressQtyKey(key: string) {
     if (key === 'C') { setWasteQty(''); return; }
-    if (key === '⌫') { setWasteQty((p) => p.slice(0, -1)); return; }
+    if (key === '') return;
     setWasteQty((prev) => {
-      if (prev.length >= 3) return prev; // cap at 999
-      if (prev === '' && key === '0') return ''; // no leading zeros
+      if (prev.length >= 3) return prev;
+      if (prev === '' && key === '0') return '';
       return prev + key;
     });
   }
 
-  const todayOrders = useMemo<OrderRecord[]>(() => {
-    try {
-      const all: OrderRecord[] = JSON.parse(localStorage.getItem('bakery_orders') ?? '[]');
-      const prefix = todayPrefix();
-      return all.filter((o) => o.paidAt?.startsWith(prefix));
-    } catch {
-      return [];
-    }
-  }, []);
+  const todayWaste   = wasteEntries.filter((w) => w.recorded_at?.startsWith(new Date().toISOString().slice(0, 10)));
+  const totalRevenue = todayOrders.reduce((s, o) => s + (o.payment?.total ?? 0), 0);
+  const orderCount   = todayOrders.length;
+  const avgOrder     = orderCount > 0 ? totalRevenue / orderCount : 0;
+  const wasteCost    = todayWaste.reduce((s, w) => s + w.qty * w.unit_cost, 0);
+  const netRevenue   = totalRevenue - wasteCost;
 
-  const todayWaste    = wasteEntries.filter((w) => w.recordedAt.startsWith(todayPrefix()));
-  const filteredWaste = filterWasteByMode(wasteEntries, wasteFilter);
-
-  const totalRevenue  = todayOrders.reduce((s, o) => s + o.total, 0);
-  const orderCount    = todayOrders.length;
-  const avgOrder      = orderCount > 0 ? totalRevenue / orderCount : 0;
-  const wasteCost     = todayWaste.reduce((s, w) => s + w.qty * w.unitCost, 0);
-  const netRevenue    = totalRevenue - wasteCost;
-
-  const selectedItemName = menuItems.find((m) => m.id === Number(wasteItemId))?.name ?? '';
+  const selectedItem     = menuItems.find((m) => m.id === Number(wasteItemId));
+  const selectedItemName = selectedItem?.name ?? '';
   const qtyNum           = parseInt(wasteQty) || 0;
   const unitNum          = parseFloat(wasteUnit) || 0;
   const canRecord        = wasteItemId !== '' && qtyNum > 0;
 
-  function addWasteEntry() {
-    if (!canRecord) return;
-    const entry: WasteEntry = {
-      id: `W-${Date.now()}`,
-      itemName: selectedItemName,
-      qty: qtyNum,
-      unitCost: unitNum,
-      recordedBy: user.full_name,
-      recordedAt: new Date().toISOString(),
-    };
-    const updated = [entry, ...wasteEntries];
-    saveWaste(updated);
-    setWasteEntries(updated);
-    appendAudit(user, 'Waste recorded',
-      `${qtyNum}× ${selectedItemName} @ ${fmt(unitNum)} each = ${fmt(qtyNum * unitNum)}`);
-    // reset form
-    setWasteCatId('');
-    setWasteItemId('');
-    setWasteQty('');
-    setWasteUnit('');
-    setShowWasteForm(false);
+  async function addWasteEntry() {
+    if (!canRecord || !selectedItem) return;
+    try {
+      const entry = await logWaste({
+        staff_id:      user.staff_id,
+        item_id:       selectedItem.id,
+        item_name:     selectedItemName,
+        category_name: wasteCatName,
+        quantity:      qtyNum,
+        unit_cost:     unitNum,
+      });
+      setWasteEntries((prev) => [entry, ...prev]);
+      appendAuditLog(user, 'Waste recorded',
+        `${qtyNum}x ${selectedItemName} @ ${fmt(unitNum)} each = ${fmt(qtyNum * unitNum)}`);
+      setWasteItemId('');
+      setWasteCatName('');
+      setWasteQty('');
+      setWasteUnit('');
+      setShowWasteForm(false);
+    } catch (err) {
+      console.error('Failed to record waste:', err);
+      alert('Failed to record waste. Please try again.');
+    }
   }
 
-  function removeWasteEntry(id: string) {
-    const updated = wasteEntries.filter((w) => w.id !== id);
-    saveWaste(updated);
-    setWasteEntries(updated);
+  async function removeWasteEntry(id: number) {
+    await deleteWaste(id);
+    setWasteEntries((prev) => prev.filter((w) => w.id !== id));
   }
 
   const byMethod = {
-    card: todayOrders.filter((o) => o.paymentMethod === 'card'),
-    cash: todayOrders.filter((o) => o.paymentMethod === 'cash'),
-    qr:   todayOrders.filter((o) => o.paymentMethod === 'qr'),
+    card: todayOrders.filter((o) => o.payment?.method === 'card'),
+    cash: todayOrders.filter((o) => o.payment?.method === 'cash'),
+    qr:   todayOrders.filter((o) => o.payment?.method === 'qr'),
   };
 
   // Aggregate best sellers
@@ -189,7 +141,7 @@ export default function DashboardTab({ user }: Props) {
     .sort((a, b) => b.qty - a.qty)
     .slice(0, 5);
 
-  const recentOrders = [...todayOrders].reverse().slice(0, 8);
+  const recentOrders = [...todayOrders].slice(0, 8);
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -204,10 +156,10 @@ export default function DashboardTab({ user }: Props) {
 
       {/* ── Stat cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Gross Revenue" value={fmt(totalRevenue)} sub={`${orderCount} order${orderCount !== 1 ? 's' : ''}`} color="amber" icon="💷" />
-        <StatCard label="Waste Cost"    value={fmt(wasteCost)}    sub={`${todayWaste.length} item${todayWaste.length !== 1 ? 's' : ''} wasted`} color="red"   icon="🗑" />
-        <StatCard label="Net Revenue"   value={fmt(netRevenue)}   sub="after waste"          color={netRevenue >= 0 ? 'stone' : 'red'} icon="📊" />
-        <StatCard label="Avg Order"     value={fmt(avgOrder)}     sub="per transaction"       color="stone"  icon="🧾" />
+        <StatCard label="Gross Revenue" value={fmt(totalRevenue)} sub={`${orderCount} order${orderCount !== 1 ? 's' : ''}`} color="amber" icon="£" />
+        <StatCard label="Waste Cost"    value={fmt(wasteCost)}    sub={`${todayWaste.length} item${todayWaste.length !== 1 ? 's' : ''} wasted`} color="red" icon="X" />
+        <StatCard label="Net Revenue"   value={fmt(netRevenue)}   sub="after waste" color={netRevenue >= 0 ? 'stone' : 'red'} icon="$" />
+        <StatCard label="Avg Order"     value={fmt(avgOrder)}     sub="per transaction" color="stone" icon="~" />
       </div>
 
       {/* ── Payment method split ── */}
@@ -217,14 +169,14 @@ export default function DashboardTab({ user }: Props) {
         </div>
         <div className="grid grid-cols-3 divide-x divide-stone-100">
           {[
-            { label: '💳 Card', orders: byMethod.card },
-            { label: '💵 Cash', orders: byMethod.cash },
-            { label: '📱 QR',   orders: byMethod.qr   },
+            { label: 'Card', orders: byMethod.card },
+            { label: 'Cash', orders: byMethod.cash },
+            { label: 'QR',   orders: byMethod.qr   },
           ].map(({ label, orders }) => (
             <div key={label} className="px-5 py-4 text-center">
               <p className="text-xs text-stone-500">{label}</p>
               <p className="text-2xl font-bold text-stone-800 mt-1">{orders.length}</p>
-              <p className="text-xs text-stone-400 mt-0.5">{fmt(orders.reduce((s, o) => s + o.total, 0))}</p>
+              <p className="text-xs text-stone-400 mt-0.5">{fmt(orders.reduce((s, o) => s + (o.payment?.total ?? 0), 0))}</p>
             </div>
           ))}
         </div>
@@ -242,67 +194,58 @@ export default function DashboardTab({ user }: Props) {
             className="text-xs bg-red-50 hover:bg-red-100 border border-red-200 text-red-700
               font-semibold px-3 py-1.5 rounded-lg transition-colors"
           >
-            {showWasteForm ? '✕ Cancel' : '+ Add Waste'}
+            {showWasteForm ? 'X Cancel' : '+ Add Waste'}
           </button>
         </div>
 
         {showWasteForm && (
           <div className="px-5 py-4 border-b border-stone-100 bg-red-50">
             <div className="grid grid-cols-2 gap-4">
-
-              {/* ── Left: dropdowns + price ── */}
               <div className="space-y-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Category</label>
-                  <select
-                    value={wasteCatId}
-                    onChange={(e) => handleWasteCatChange(e.target.value)}
-                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-800
-                      focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-red-400 transition bg-white"
-                  >
-                    <option value="">Select category…</option>
-                    {DEFAULT_CATEGORIES.map((cat) => (
-                      <option key={cat.id} value={cat.id}>{cat.name}</option>
-                    ))}
-                  </select>
-                </div>
-
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Menu Item</label>
                   <select
                     value={wasteItemId}
                     onChange={(e) => handleWasteItemChange(e.target.value)}
-                    disabled={!wasteCatId}
                     className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-800
-                      focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-red-400 transition bg-white
-                      disabled:opacity-50"
+                      focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-red-400 transition bg-white"
                   >
-                    <option value="">Select item…</option>
-                    {wasteCatItems.map((item) => (
+                    <option value="">Select item...</option>
+                    {allAvailableItems.map((item) => (
                       <option key={item.id} value={item.id}>{item.name}</option>
                     ))}
                   </select>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Unit Price (£)</label>
+                  <label className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Category</label>
                   <input
-                    type="number"
-                    value={wasteUnit}
-                    onChange={(e) => setWasteUnit(e.target.value)}
-                    placeholder="0.00"
-                    min="0" step="0.01"
-                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-800
-                      focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-red-400 transition bg-white"
+                    type="text"
+                    value={wasteCatName}
+                    readOnly
+                    placeholder="Auto-filled from item"
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-500
+                      bg-stone-100 cursor-default select-none"
                   />
                 </div>
 
-                {/* Live calc */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Unit Price (£)</label>
+                  <input
+                    type="text"
+                    value={wasteUnit ? `£${wasteUnit}` : ''}
+                    readOnly
+                    placeholder="Auto-filled from item"
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-500
+                      bg-stone-100 cursor-default select-none"
+                  />
+                </div>
+
                 <div className="rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm">
                   <p className="text-xs text-stone-500">Waste value</p>
                   <p className="text-lg font-bold text-red-600 tabular-nums">{fmt(qtyNum * unitNum)}</p>
                   {selectedItemName && (
-                    <p className="text-xs text-stone-400 truncate mt-0.5">{qtyNum || 0}× {selectedItemName}</p>
+                    <p className="text-xs text-stone-400 truncate mt-0.5">{qtyNum || 0}x {selectedItemName}</p>
                   )}
                 </div>
 
@@ -316,7 +259,6 @@ export default function DashboardTab({ user }: Props) {
                 </button>
               </div>
 
-              {/* ── Right: qty numpad ── */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Quantity</label>
                 <div className="bg-white border border-stone-300 rounded-xl px-3 py-2 text-center">
@@ -325,22 +267,22 @@ export default function DashboardTab({ user }: Props) {
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5">
-                  {QTY_ROWS.flat().map((key, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => pressQtyKey(key)}
-                      className={`h-10 rounded-lg text-sm font-semibold transition-all active:scale-95 select-none
-                        ${key === 'C'
-                          ? 'bg-red-100 hover:bg-red-200 text-red-700'
-                          : key === '⌫'
-                            ? 'bg-stone-200 hover:bg-stone-300 text-stone-600'
+                  {QTY_ROWS.flat().map((key, i) =>
+                    key === '' ? <div key={i} /> : (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => pressQtyKey(key)}
+                        className={`h-10 rounded-lg text-sm font-semibold transition-all active:scale-95 select-none
+                          ${key === 'C'
+                            ? 'bg-red-100 hover:bg-red-200 text-red-700'
                             : 'bg-stone-100 hover:bg-amber-100 text-stone-800'
-                        }`}
-                    >
-                      {key}
-                    </button>
-                  ))}
+                          }`}
+                      >
+                        {key}
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
             </div>
@@ -363,32 +305,32 @@ export default function DashboardTab({ user }: Props) {
             </button>
           ))}
           <span className="ml-auto text-xs text-stone-400 shrink-0">
-            {filteredWaste.length} record{filteredWaste.length !== 1 ? 's' : ''}
+            {loadingWaste ? '...' : `${wasteEntries.length} record${wasteEntries.length !== 1 ? 's' : ''}`}
           </span>
         </div>
 
-        {filteredWaste.length === 0 ? (
+        {wasteEntries.length === 0 ? (
           <div className="px-5 py-8 text-center text-stone-400 text-sm">No waste recorded</div>
         ) : (
           <div className="divide-y divide-stone-100">
-            {filteredWaste.map((w) => (
+            {wasteEntries.map((w) => (
               <div key={w.id} className="flex items-center gap-3 px-5 py-3">
-                <span className="text-lg">🗑</span>
+                <span className="text-lg">X</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-stone-800 truncate">{w.itemName}</p>
+                  <p className="text-sm font-medium text-stone-800 truncate">{w.item_name}</p>
                   <p className="text-xs text-stone-400">
-                    {w.qty} × {fmt(w.unitCost)} · by {w.recordedBy} ·{' '}
-                    {new Date(w.recordedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    {w.qty} x {fmt(w.unit_cost)} · by {w.recorded_by} ·{' '}
+                    {w.recorded_at && new Date(w.recorded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                     {' '}
-                    {new Date(w.recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {w.recorded_at && new Date(w.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
-                <span className="text-sm font-semibold text-red-600">{fmt(w.qty * w.unitCost)}</span>
+                <span className="text-sm font-semibold text-red-600">{fmt(w.qty * w.unit_cost)}</span>
                 <button
                   onClick={() => removeWasteEntry(w.id)}
                   className="text-stone-300 hover:text-red-400 transition-colors text-sm"
                   title="Remove entry"
-                >✕</button>
+                >X</button>
               </div>
             ))}
           </div>
@@ -433,13 +375,15 @@ export default function DashboardTab({ user }: Props) {
           ) : (
             <div className="divide-y divide-stone-100">
               {recentOrders.map((o) => (
-                <div key={o.orderId} className="flex items-center gap-3 px-5 py-3">
-                  <span className="text-lg">{o.paymentMethod === 'card' ? '💳' : o.paymentMethod === 'cash' ? '💵' : '📱'}</span>
+                <div key={o.order_id} className="flex items-center gap-3 px-5 py-3">
+                  <span className="text-lg">{o.payment?.method === 'card' ? 'C' : o.payment?.method === 'cash' ? '$' : 'Q'}</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-stone-800 truncate">{o.customerName}</p>
-                    <p className="text-xs text-stone-400">{new Date(o.paidAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    <p className="text-sm font-medium text-stone-800 truncate">{o.customer_name}</p>
+                    <p className="text-xs text-stone-400">
+                      {o.paid_at && new Date(o.paid_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
                   </div>
-                  <span className="text-sm font-semibold text-amber-700">{fmt(o.total)}</span>
+                  <span className="text-sm font-semibold text-amber-700">{fmt(o.payment?.total ?? 0)}</span>
                 </div>
               ))}
             </div>
@@ -451,13 +395,9 @@ export default function DashboardTab({ user }: Props) {
 }
 
 function StatCard({ label, value, sub, color, icon }: {
-  label: string;
-  value: string;
-  sub: string;
-  color: 'amber' | 'stone' | 'red';
-  icon: string;
+  label: string; value: string; sub: string; color: 'amber' | 'stone' | 'red'; icon: string;
 }) {
-  const bg    = color === 'amber' ? 'bg-amber-700 border-amber-600' : color === 'red' ? 'bg-red-50 border-red-200' : 'bg-white border-stone-200';
+  const bg      = color === 'amber' ? 'bg-amber-700 border-amber-600' : color === 'red' ? 'bg-red-50 border-red-200' : 'bg-white border-stone-200';
   const label_c = color === 'amber' ? 'text-amber-200' : color === 'red' ? 'text-red-500' : 'text-stone-500';
   const value_c = color === 'amber' ? 'text-white' : color === 'red' ? 'text-red-700' : 'text-stone-800';
   const sub_c   = color === 'amber' ? 'text-amber-200' : color === 'red' ? 'text-red-400' : 'text-stone-400';

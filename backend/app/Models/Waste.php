@@ -6,31 +6,38 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class AuditLog extends Model
+class Waste extends Model
 {
     use HasFactory;
-
-    protected $primaryKey = 'log_id';
+    
+    protected $table = 'waste';
+    protected $primaryKey = 'waste_id';
 
     protected $fillable = [
         'staff_id',
-        'action_describe',
-        'action',
-        'details',
-        'user_name',
-        'role',
-        'log_timestamp',
+        'item_id',
+        'item_name',
+        'category_name',
+        'quantity',
+        'unit_cost',
+        'waste_datetime',
     ];
 
     protected function casts(): array
     {
         return [
-            'log_timestamp' => 'datetime',
+            'unit_cost'       => 'decimal:2',
+            'waste_datetime'  => 'datetime',
         ];
     }
 
     public function staff(): BelongsTo
     {
         return $this->belongsTo(Staff::class, 'staff_id', 'staff_id');
+    }
+
+    public function menuItem(): BelongsTo
+    {
+        return $this->belongsTo(MenuItem::class, 'item_id', 'item_id');
     }
 }
